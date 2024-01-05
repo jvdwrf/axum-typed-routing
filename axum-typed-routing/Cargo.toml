@@ -2,6 +2,13 @@
 name = "axum-typed-routing"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["axum", "routing", "handler", "typed", "macro"]
+categories = ["web-programming"]
+description = "Typed routing macros for axum"
+homepage = "https://github.com/jvdwrf/axum-typed-routing"
+repository = "https://github.com/jvdwrf/axum-typed-routing"
+readme = "../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

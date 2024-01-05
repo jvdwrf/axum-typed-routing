@@ -32,7 +32,6 @@ impl Parse for RouteLit {
     }
 }
 
-#[derive(Debug)]
 pub struct Route {
     pub method: Method,
     pub path_params: Vec<(Slash, Option<Colon>, Ident)>,
@@ -61,7 +60,6 @@ impl Parse for Route {
     }
 }
 
-#[derive(Debug)]
 pub enum Method {
     Get(Span),
     Post(Span),

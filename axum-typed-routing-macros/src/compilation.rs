@@ -2,7 +2,6 @@ use quote::ToTokens;
 
 use super::*;
 
-#[derive(Debug)]
 pub struct CompiledRoute {
     pub method: Method,
     #[allow(clippy::type_complexity)]
