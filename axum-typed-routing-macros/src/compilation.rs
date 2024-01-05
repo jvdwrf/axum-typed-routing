@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, Attribute, Expr, ExprClosure, Lit, LitBool, Pat, PatType};
+use syn::{spanned::Spanned, Attribute, Expr, Lit, LitBool, Pat, PatType};
 
 use crate::parsing::OapiOptions;
 
