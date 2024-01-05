@@ -1,4 +1,5 @@
 use quote::ToTokens;
+use syn::{spanned::Spanned, PatType};
 
 use super::*;
 
@@ -108,28 +109,49 @@ impl CompiledRoute {
         }
     }
 
-    // The arguments not used in the route.
-    pub fn remaining_args(&self, args: &Punctuated<FnArg, Comma>) -> Punctuated<FnArg, Comma> {
+    pub fn extracted_idents(&self) -> Vec<Ident> {
+        let mut idents = Vec::new();
+        for (_slash, ident, colon) in &self.path_params {
+            if let Some((_colon, _ty)) = colon {
+                idents.push(ident.clone());
+            }
+        }
+        for (ident, _ty) in &self.query_params {
+            idents.push(ident.clone());
+        }
+        idents
+    }
+
+    /// The arguments not used in the route.
+    /// Map the identifier to `___arg___{i}: Type`.
+    pub fn remaining_pattypes_numbered(
+        &self,
+        args: &Punctuated<FnArg, Comma>,
+    ) -> Punctuated<PatType, Comma> {
         args.iter()
-            .filter(|item| {
+            .enumerate()
+            .filter_map(|(i, item)| {
                 if let FnArg::Typed(pat_type) = item {
-                    if let syn::Pat::Ident(ident) = &*pat_type.pat {
-                        if self
-                            .path_params
+                    if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                        if self.path_params.iter().any(|(_slash, path_ident, colon)| {
+                            colon.is_some() && path_ident == &pat_ident.ident
+                        }) || self
+                            .query_params
                             .iter()
-                            .any(|(_slash, path_ident, _)| path_ident == &ident.ident)
-                            || self
-                                .query_params
-                                .iter()
-                                .any(|(query_ident, _)| query_ident == &ident.ident)
+                            .any(|(query_ident, _)| query_ident == &pat_ident.ident)
                         {
-                            return false;
+                            return None;
                         }
                     }
+
+                    let mut new_pat_type = pat_type.clone();
+                    let ident = format_ident!("___arg___{}", i);
+                    new_pat_type.pat = Box::new(parse_quote!(#ident));
+                    Some(new_pat_type)
+                } else {
+                    unimplemented!("Self type is not supported")
                 }
-                true
             })
-            .cloned()
             .collect()
     }
 

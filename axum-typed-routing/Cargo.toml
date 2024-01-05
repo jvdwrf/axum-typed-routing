@@ -1,6 +1,6 @@
 [package]
 name = "axum-typed-routing"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 keywords = ["axum", "routing", "handler", "typed", "macro"]
@@ -10,13 +10,16 @@ homepage = "https://github.com/jvdwrf/axum-typed-routing"
 repository = "https://github.com/jvdwrf/axum-typed-routing"
 readme = "../README.md"
 
+[package.metadata.docs.rs]
+features = ["aide"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 axum = "0.6"
 axum-macros = "0.3"
 aide = { version = "0.12", features = ["axum"], optional = true }
-axum-typed-routing-macros = "0.1"
+axum-typed-routing-macros = {version = "0.1", path = "../axum-typed-routing-macros" }
 
 [features]
 default = []

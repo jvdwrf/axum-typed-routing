@@ -113,46 +113,40 @@ fn _route(
     let state_type = &route.state;
     let axum_path = route.to_axum_path_string();
     let http_method = route.method.to_axum_method_name();
-    let remaining_args = route.remaining_args(&function.sig.inputs);
+    let remaining_numbered_pats = route.remaining_pattypes_numbered(&function.sig.inputs);
+    let extracted_idents = route.extracted_idents();
+    let remaining_numbered_idents = remaining_numbered_pats.iter().map(|pat_type| &pat_type.pat);
     let route_docs = route.to_doc_comments(&function.sig);
 
     // Get the variables we need for code generation
-    let name = &function.sig.ident;
-    let output = &function.sig.output;
+    let fn_name = &function.sig.ident;
+    let fn_output = &function.sig.output;
     let vis = &function.vis;
     let asyncness = &function.sig.asyncness;
     let (impl_generics, ty_generics, where_clause) = &function.sig.generics.split_for_impl();
     let ty_generics = ty_generics.as_turbofish();
-    let pats = function.sig.inputs.iter().map(|arg| match arg {
-        FnArg::Receiver(_) => unimplemented!("`self` arguments are not supported"),
-        FnArg::Typed(pat_type) => {
-            let pat = &pat_type.pat;
-            quote! { #pat }
-        }
-    });
-    let docs = function
+    let fn_docs = function
         .attrs
         .iter()
-        .filter(|attr| attr.path().is_ident("doc"))
-        .collect::<Vec<_>>();
+        .filter(|attr| attr.path().is_ident("doc"));
 
     // Generate the code
     Ok(quote! {
-        #(#docs)*
+        #(#fn_docs)*
         #route_docs
-        #vis fn #name #impl_generics() -> (&'static str, #routing_prefix::#method_router<#state_type>) #where_clause {
+        #vis fn #fn_name #impl_generics() -> (&'static str, #routing_prefix::#method_router<#state_type>) #where_clause {
 
-            #asyncness fn #name #impl_generics(
+            #asyncness fn __inner__function__ #impl_generics(
                 #path_extractor
                 #query_extractor
-                #remaining_args
-            ) #output #where_clause {
+                #remaining_numbered_pats
+            ) #fn_output #where_clause {
                 #function
 
-                #name #ty_generics(#(#pats),*).await
+                #fn_name #ty_generics(#(#extracted_idents,)* #(#remaining_numbered_idents,)* ).await
             }
 
-            (#axum_path, #routing_prefix::#http_method(#name #ty_generics))
+            (#axum_path, #routing_prefix::#http_method(__inner__function__ #ty_generics))
         }
     })
 }
