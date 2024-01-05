@@ -1,0 +1,3 @@
+[workspace]
+members = ["axum-typed-routing-macros", "axum-typed-routing"]
+resolver = "2"

@@ -1,0 +1,16 @@
+[package]
+name = "axum-typed-routing"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "0.6"
+axum-macros = "0.3"
+aide = { version = "0.12", features = ["axum"], optional = true }
+axum-typed-routing-macros = { path = "../axum-typed-routing-macros" }
+
+[features]
+default = ["aide"]
+aide = ["dep:aide"]
