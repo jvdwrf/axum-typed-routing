@@ -7,7 +7,7 @@ use axum_typed_routing_macros::route;
 
 /// This is a handler that is documented!
 #[route(GET "/hello/:id?user_id&name")]
-async fn my_handler<T: 'static>(
+async fn generic_handler_with_complex_options<T: 'static>(
     mut id: u32,
     user_id: String,
     name: String,
@@ -19,33 +19,33 @@ async fn my_handler<T: 'static>(
 }
 
 #[route(POST "/hello")]
-async fn my_handler2(state: State<String>) -> String {
+async fn with_state(state: State<String>) -> String {
     String::from("Hello!")
 }
 
 #[route(POST "/hello")]
-async fn my_handler3(mut form: Form<u32>) -> String {
+async fn without_state(mut form: Form<u32>) -> String {
     String::from("Hello!")
 }
 
 #[test]
 fn test_normal() {
     let _: axum::Router = axum::Router::new()
-        .typed_route(my_handler::<u32>)
-        .typed_route(my_handler2)
+        .typed_route(generic_handler_with_complex_options::<u32>)
+        .typed_route(with_state)
         .with_state("state".to_string());
 
-    let (path, method_router) = my_handler::<u32>();
+    let (path, method_router) = generic_handler_with_complex_options::<u32>();
     assert_eq!(path, "/hello/:id");
 
-    let (path, method_router) = my_handler2();
+    let (path, method_router) = with_state();
     assert_eq!(path, "/hello");
 }
 
 #[cfg(feature = "aide")]
 mod aide_support {
     use super::*;
-    use aide::{axum::ApiRouter, openapi::OpenApi};
+    use aide::{axum::ApiRouter, openapi::OpenApi, transform::TransformOperation};
     use axum_typed_routing::TypedApiRouter;
     use axum_typed_routing_macros::api_route;
 
@@ -68,7 +68,7 @@ mod aide_support {
     #[test]
     fn test_aide() {
         let router: aide::axum::ApiRouter = aide::axum::ApiRouter::new()
-            .typed_route(my_handler2)
+            .typed_route(with_state)
             .typed_api_route(get_hello)
             .with_state("state".to_string());
 
@@ -99,6 +99,38 @@ mod aide_support {
         assert!(post_op.tags.is_empty());
     }
 
+    /// unused-summary
+    ///
+    /// unused-description
+    #[api_route(GET "/hello" {
+        summary: "MySummary",
+        description: "MyDescription",
+        hidden: false,
+        id: "MyRoute",
+        transform: |x| x.summary("OverriddenSummary")
+        tags: ["MyTag1", "MyTag2"],
+    })]
+    async fn get_gello_with_attributes(state: State<String>) -> String {
+        String::from("Hello!")
+    }
+
+    #[test]
+    fn generated_from_attributes() {
+        let router = ApiRouter::new().typed_api_route(get_gello_with_attributes);
+        let mut api = OpenApi::default();
+        router.finish_api(&mut api);
+
+        let get_op = path_item(&api, "/hello").get.as_ref().unwrap();
+
+        assert_eq!(get_op.summary, Some("OverriddenSummary".to_string()));
+        assert_eq!(get_op.description, Some("MyDescription".to_string()));
+        assert_eq!(
+            get_op.tags,
+            vec!["MyTag1".to_string(), "MyTag2".to_string()]
+        );
+        assert_eq!(get_op.operation_id, Some("MyRoute".to_string()));
+    }
+
     fn path_item<'a>(api: &'a OpenApi, path: &str) -> &'a aide::openapi::PathItem {
         api.paths
             .as_ref()
@@ -109,31 +141,5 @@ mod aide_support {
             .1
             .as_item()
             .unwrap()
-    }
-
-    /// unused-summary
-    /// 
-    /// unused-description
-    #[api_route(GET "/hello" {
-        summary: "MySummary",
-        description: "MyDescription",
-        hidden: false,
-        tags: ["MyTag1", "MyTag2"],
-    })]
-    async fn get_gello_with_attributes(state: State<String>) -> String {
-        String::from("Hello!")
-    }
-
-    #[test]
-    fn summary_and_description_are_generated_from_attributes() {
-        let router = ApiRouter::new().typed_api_route(get_gello_with_attributes);
-        let mut api = OpenApi::default();
-        router.finish_api(&mut api);
-
-        let get_op = path_item(&api, "/hello").get.as_ref().unwrap();
-
-        assert_eq!(get_op.summary, Some("MySummary".to_string()));
-        assert_eq!(get_op.description, Some("MyDescription".to_string()));
-        assert_eq!(get_op.tags, vec!["MyTag1".to_string(), "MyTag2".to_string()]);
     }
 }

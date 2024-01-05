@@ -1,7 +1,4 @@
-use syn::{
-    spanned::Spanned, token::Brace, Expr, ExprStruct, FieldValue, ItemStruct, Lit, LitBool, Member,
-    PatStruct, PatType,
-};
+use syn::{spanned::Spanned, token::Brace, Expr, ExprClosure, FieldValue, Lit, LitBool, Member};
 
 use super::*;
 
@@ -42,6 +39,8 @@ pub struct OapiOptions {
     pub description: Option<LitStr>,
     pub hidden: Option<LitBool>,
     pub tags: Option<Vec<LitStr>>,
+    pub id: Option<LitStr>,
+    pub transform: Option<ExprClosure>,
 }
 
 impl Parse for OapiOptions {
@@ -140,12 +139,43 @@ impl Parse for OapiOptions {
                 }
                 None => None,
             },
+            id: match options.remove(&Ident::new("id", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Lit(expr_lit) = option {
+                        match expr_lit.lit {
+                            Lit::Str(lit_str) => Some(lit_str),
+                            _ => {
+                                return Err(syn::Error::new(
+                                    expr_lit.span(),
+                                    "expected string literal",
+                                ))
+                            }
+                        }
+                    } else {
+                        return Err(syn::Error::new(option.span(), "expected string literal"));
+                    }
+                }
+                None => None,
+            },
+            transform: match options.remove(&Ident::new("transform", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Closure(expr_closure) = option {
+                        Some(expr_closure)
+                    } else {
+                        return Err(syn::Error::new(
+                            option.span(),
+                            "expected closure expression",
+                        ));
+                    }
+                }
+                None => None,
+            },
         };
 
         if !options.is_empty() {
             return Err(syn::Error::new(
                 options.keys().next().unwrap().span(),
-                "unexpected field, expected one of (summary, description, hidden, tags)",
+                "unexpected field, expected one of (summary, description, hidden, tags, id, transform)",
             ));
         }
 

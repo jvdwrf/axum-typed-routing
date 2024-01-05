@@ -73,7 +73,28 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     }
 }
 
-/// Same as [`macro@route`], but with support for `aide`.
+/// Same as [`macro@route`], but with support for OpenApi using `aide`. See [`macro@route`] for more
+/// information and examples.
+///
+///
+/// # Syntax
+/// ```ignore
+/// #[api_route(<METHOD> "<PATH>" [with <STATE>] [{
+///     summary = "<SUMMARY>",
+///     description = "<DESCRIPTION>",
+///     id = "<ID>",
+///     tags = ["<TAG>", ..],
+///     hidden = <bool>,
+///     transform = |op| { .. },
+/// }])]
+/// ```
+/// - `summary` is the OpenApi summary. If not specified, the first line of the function's doc-comments
+/// - `description` is the OpenApi description. If not specified, the rest of the function's doc-comments
+/// - `id` is the OpenApi operationId. If not specified, the function's name is used.
+/// - `tags` are the OpenApi tags.
+/// - `hidden` sets whether docs should be hidden for this route.
+/// - `transform` is a closure that takes an `TransformOperation` and returns an `TransformOperation`.
+/// This may override the other options. (see the crate `aide` for more information).
 #[proc_macro_attribute]
 pub fn api_route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     match _route(attr, item.clone(), true) {
@@ -128,15 +149,24 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
                 .get_oapi_hidden()
                 .map(|hidden| quote! { .hidden(#hidden) });
             let tags = route.get_oapi_tags();
+            let id = route
+                .get_oapi_id(&function.sig)
+                .map(|id| quote! { .id(#id) });
+            let transform = route.get_oapi_transform()?;
             (
                 quote! {
                     ::aide::axum::routing::#http_method(
                         __inner__function__ #ty_generics,
-                        |operation| operation
-                            #summary
-                            #description
-                            #hidden
-                            #(.tag(#tags))*
+                        |__op__| {
+                            let __op__ = __op__
+                                #summary
+                                #description
+                                #hidden
+                                #id
+                                #(.tag(#tags))*;
+                            #transform
+                            __op__
+                        }
                     )
                 },
                 quote! { ::aide::axum::routing::ApiMethodRouter },

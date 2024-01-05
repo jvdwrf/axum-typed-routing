@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{Attribute, Expr, Lit, LitBool, PatType};
+use syn::{spanned::Spanned, Attribute, Expr, ExprClosure, Lit, LitBool, Pat, PatType};
 
 use crate::parsing::OapiOptions;
 
@@ -172,7 +172,7 @@ impl CompiledRoute {
                 return Some(summary.clone());
             }
         }
-        doc_iter(attrs).next().map(|item| item.clone())
+        doc_iter(attrs).next().cloned()
     }
 
     pub fn get_oapi_description(&self, attrs: &[Attribute]) -> Option<LitStr> {
@@ -208,6 +208,45 @@ impl CompiledRoute {
             }
         }
         Vec::new()
+    }
+
+    pub fn get_oapi_id(&self, sig: &Signature) -> Option<LitStr> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(id) = &oapi_options.id {
+                return Some(id.clone());
+            }
+        }
+        Some(LitStr::new(&sig.ident.to_string(), sig.ident.span()))
+    }
+
+    pub fn get_oapi_transform(&self) -> syn::Result<Option<TokenStream2>> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(transform) = &oapi_options.transform {
+                if transform.inputs.len() != 1 {
+                    return Err(syn::Error::new(
+                        transform.span(),
+                        "expected a single identifier",
+                    ));
+                }
+
+                let pat = transform.inputs.first().unwrap();
+                let body = &transform.body;
+
+                if let Pat::Ident(pat_ident) = pat {
+                    let ident = &pat_ident.ident;
+                    return Ok(Some(quote! {
+                        let #ident = __op__;
+                        let __op__ = #body;
+                    }));
+                } else {
+                    return Err(syn::Error::new(
+                        pat.span(),
+                        "expected a single identifier without type",
+                    ));
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {
