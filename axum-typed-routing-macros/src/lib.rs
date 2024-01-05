@@ -7,7 +7,7 @@ use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     token::{Colon, Comma, Slash},
-    FnArg, GenericArgument, ItemFn, LitStr, Path, PathArguments, Signature, Type,
+    FnArg, GenericArgument, ItemFn, LitStr, Meta, PathArguments, Signature, Type,
 };
 #[macro_use]
 extern crate quote;
@@ -63,12 +63,7 @@ mod parsing;
 /// and second parameters of the function. The remaining parameters are the parameters of the handler.
 #[proc_macro_attribute]
 pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
-    match _route(
-        attr,
-        item.clone(),
-        parse_quote!(::axum::routing),
-        parse_quote!(MethodRouter),
-    ) {
+    match _route(attr, item.clone(), false) {
         Ok(tokens) => tokens.into(),
         Err(err) => {
             let err: TokenStream = err.to_compile_error().into();
@@ -81,12 +76,7 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 /// Same as [`macro@route`], but with support for `aide`.
 #[proc_macro_attribute]
 pub fn api_route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
-    match _route(
-        attr,
-        item.clone(),
-        parse_quote!(::aide::axum::routing),
-        parse_quote!(ApiMethodRouter),
-    ) {
+    match _route(attr, item.clone(), true) {
         Ok(tokens) => tokens.into(),
         Err(err) => {
             let err: TokenStream = err.to_compile_error().into();
@@ -96,18 +86,13 @@ pub fn api_route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     }
 }
 
-fn _route(
-    attr: TokenStream,
-    item: TokenStream,
-    routing_prefix: Path,
-    method_router: Ident,
-) -> syn::Result<TokenStream2> {
+fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<TokenStream2> {
     // Parse the route and function
     let route = syn::parse::<Route>(attr)?;
     let function = syn::parse::<ItemFn>(item)?;
 
     // Now we can compile the route
-    let route = CompiledRoute::from_route(route, &function.sig)?;
+    let route = CompiledRoute::from_route(route, &function.sig, with_aide)?;
     let path_extractor = route.path_extractor();
     let query_extractor = route.query_extractor();
     let state_type = &route.state;
@@ -130,11 +115,44 @@ fn _route(
         .iter()
         .filter(|attr| attr.path().is_ident("doc"));
 
+    let (inner_fn_call, method_router_ty) = match with_aide {
+        true => {
+            let http_method = format_ident!("{}_with", http_method);
+            let summary = route
+                .get_oapi_summary(&function.attrs)
+                .map(|summary| quote! { .summary(#summary) });
+            let description = route
+                .get_oapi_description(&function.attrs)
+                .map(|description| quote! { .description(#description) });
+            let hidden = route
+                .get_oapi_hidden()
+                .map(|hidden| quote! { .hidden(#hidden) });
+            let tags = route.get_oapi_tags();
+            (
+                quote! {
+                    ::aide::axum::routing::#http_method(
+                        __inner__function__ #ty_generics,
+                        |operation| operation
+                            #summary
+                            #description
+                            #hidden
+                            #(.tag(#tags))*
+                    )
+                },
+                quote! { ::aide::axum::routing::ApiMethodRouter },
+            )
+        }
+        false => (
+            quote! { ::axum::routing::#http_method(__inner__function__ #ty_generics) },
+            quote! { ::axum::routing::MethodRouter },
+        ),
+    };
+
     // Generate the code
     Ok(quote! {
         #(#fn_docs)*
         #route_docs
-        #vis fn #fn_name #impl_generics() -> (&'static str, #routing_prefix::#method_router<#state_type>) #where_clause {
+        #vis fn #fn_name #impl_generics() -> (&'static str, #method_router_ty<#state_type>) #where_clause {
 
             #asyncness fn __inner__function__ #impl_generics(
                 #path_extractor
@@ -146,7 +164,7 @@ fn _route(
                 #fn_name #ty_generics(#(#extracted_idents,)* #(#remaining_numbered_idents,)* ).await
             }
 
-            (#axum_path, #routing_prefix::#http_method(__inner__function__ #ty_generics))
+            (#axum_path, #inner_fn_call)
         }
     })
 }

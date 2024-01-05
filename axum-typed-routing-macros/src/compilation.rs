@@ -1,5 +1,7 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, PatType};
+use syn::{Attribute, Expr, Lit, LitBool, PatType};
+
+use crate::parsing::OapiOptions;
 
 use super::*;
 
@@ -10,6 +12,7 @@ pub struct CompiledRoute {
     pub query_params: Vec<(Ident, Box<Type>)>,
     pub state: Type,
     pub route_lit: LitStr,
+    pub oapi_options: Option<OapiOptions>,
 }
 
 impl CompiledRoute {
@@ -26,7 +29,14 @@ impl CompiledRoute {
     }
 
     /// Removes the arguments in `route` from `args`, and merges them in the output.
-    pub fn from_route(route: Route, sig: &Signature) -> syn::Result<Self> {
+    pub fn from_route(route: Route, sig: &Signature, with_aide: bool) -> syn::Result<Self> {
+        if !with_aide && route.oapi_options.is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "Use `api_route` instead of `route` to use OpenAPI options",
+            ));
+        }
+
         let mut arg_map = sig
             .inputs
             .iter()
@@ -75,6 +85,7 @@ impl CompiledRoute {
             path_params,
             query_params,
             state: route.state.unwrap_or_else(|| guess_state_type(sig)),
+            oapi_options: route.oapi_options,
         })
     }
 
@@ -155,14 +166,59 @@ impl CompiledRoute {
             .collect()
     }
 
+    pub fn get_oapi_summary(&self, attrs: &[Attribute]) -> Option<LitStr> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(summary) = &oapi_options.summary {
+                return Some(summary.clone());
+            }
+        }
+        doc_iter(attrs).next().map(|item| item.clone())
+    }
+
+    pub fn get_oapi_description(&self, attrs: &[Attribute]) -> Option<LitStr> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(description) = &oapi_options.description {
+                return Some(description.clone());
+            }
+        }
+        doc_iter(attrs)
+            .skip(2)
+            .map(|item| item.value())
+            .reduce(|mut acc, item| {
+                acc.push('\n');
+                acc.push_str(&item);
+                acc
+            })
+            .map(|item| LitStr::new(&item, proc_macro2::Span::call_site()))
+    }
+
+    pub fn get_oapi_hidden(&self) -> Option<LitBool> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(hidden) = &oapi_options.hidden {
+                return Some(hidden.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_oapi_tags(&self) -> Vec<LitStr> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some(tags) = &oapi_options.tags {
+                return tags.clone();
+            }
+        }
+        Vec::new()
+    }
+
     pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {
         let doc = format!(
             "## Handler information
-- Path: `{}`
+- Path: `{} {}`
 - Signature: 
     ```rust
     {}
     ```",
+            self.method.to_axum_method_name(),
             self.route_lit.value(),
             sig.to_token_stream()
         );
@@ -174,25 +230,40 @@ impl CompiledRoute {
 
 fn guess_state_type(sig: &syn::Signature) -> Type {
     for arg in &sig.inputs {
-        match arg {
-            FnArg::Typed(pat_type) => {
-                // Returns `T` if the type of the last segment is exactly `State<T>`.
-                if let Type::Path(ty) = &*pat_type.ty {
-                    let last_segment = ty.path.segments.last().unwrap();
-                    if last_segment.ident == "State" {
-                        if let PathArguments::AngleBracketed(args) = &last_segment.arguments {
-                            if args.args.len() == 1 {
-                                if let GenericArgument::Type(ty) = args.args.first().unwrap() {
-                                    return ty.clone();
-                                }
+        if let FnArg::Typed(pat_type) = arg {
+            // Returns `T` if the type of the last segment is exactly `State<T>`.
+            if let Type::Path(ty) = &*pat_type.ty {
+                let last_segment = ty.path.segments.last().unwrap();
+                if last_segment.ident == "State" {
+                    if let PathArguments::AngleBracketed(args) = &last_segment.arguments {
+                        if args.args.len() == 1 {
+                            if let GenericArgument::Type(ty) = args.args.first().unwrap() {
+                                return ty.clone();
                             }
                         }
                     }
                 }
             }
-            FnArg::Receiver(_) => {}
         }
     }
 
     parse_quote! { () }
+}
+
+fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
+    attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("doc"))
+        .map(|attr| {
+            let Meta::NameValue(meta) = &attr.meta else {
+                panic!("doc attribute is not a name-value attribute");
+            };
+            let Expr::Lit(lit) = &meta.value else {
+                panic!("doc attribute is not a string literal");
+            };
+            let Lit::Str(lit_str) = &lit.lit else {
+                panic!("doc attribute is not a string literal");
+            };
+            lit_str
+        })
 }

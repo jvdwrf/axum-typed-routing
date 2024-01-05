@@ -1,3 +1,8 @@
+use syn::{
+    spanned::Spanned, token::Brace, Expr, ExprStruct, FieldValue, ItemStruct, Lit, LitBool, Member,
+    PatStruct, PatType,
+};
+
 use super::*;
 
 struct RouteLit {
@@ -32,12 +37,129 @@ impl Parse for RouteLit {
     }
 }
 
+pub struct OapiOptions {
+    pub summary: Option<LitStr>,
+    pub description: Option<LitStr>,
+    pub hidden: Option<LitBool>,
+    pub tags: Option<Vec<LitStr>>,
+}
+
+impl Parse for OapiOptions {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut options = HashMap::new();
+        while !input.is_empty() {
+            let field_val = input.parse::<FieldValue>()?;
+            let Member::Named(ident) = field_val.member else {
+                return Err(input.error("expected named field"));
+            };
+            options.insert(ident.clone(), field_val.expr);
+            input.parse::<Token![,]>().ok();
+        }
+
+        let this = Self {
+            summary: match options.remove(&Ident::new("summary", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Lit(expr_lit) = option {
+                        match expr_lit.lit {
+                            Lit::Str(lit_str) => Some(lit_str),
+                            _ => {
+                                return Err(syn::Error::new(
+                                    expr_lit.span(),
+                                    "expected string literal",
+                                ))
+                            }
+                        }
+                    } else {
+                        return Err(syn::Error::new(option.span(), "expected string literal"));
+                    }
+                }
+                None => None,
+            },
+            description: match options.remove(&Ident::new("description", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Lit(expr_lit) = option {
+                        match expr_lit.lit {
+                            Lit::Str(lit_str) => Some(lit_str),
+                            _ => {
+                                return Err(syn::Error::new(
+                                    expr_lit.span(),
+                                    "expected string literal",
+                                ))
+                            }
+                        }
+                    } else {
+                        return Err(syn::Error::new(option.span(), "expected string literal"));
+                    }
+                }
+                None => None,
+            },
+            hidden: match options.remove(&Ident::new("hidden", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Lit(expr_lit) = option {
+                        match expr_lit.lit {
+                            Lit::Bool(lit_bool) => Some(lit_bool),
+                            _ => {
+                                return Err(syn::Error::new(
+                                    expr_lit.span(),
+                                    "expected boolean literal",
+                                ))
+                            }
+                        }
+                    } else {
+                        return Err(syn::Error::new(option.span(), "expected boolean literal"));
+                    }
+                }
+                None => None,
+            },
+            tags: match options.remove(&Ident::new("tags", Span::call_site())) {
+                Some(option) => {
+                    if let Expr::Array(expr_array) = option {
+                        let mut tags = Vec::new();
+                        for expr in expr_array.elems {
+                            if let Expr::Lit(expr_lit) = expr {
+                                match expr_lit.lit {
+                                    Lit::Str(lit_str) => tags.push(lit_str),
+                                    _ => {
+                                        return Err(syn::Error::new(
+                                            expr_lit.span(),
+                                            "expected string literal",
+                                        ))
+                                    }
+                                }
+                            } else {
+                                return Err(syn::Error::new(
+                                    expr.span(),
+                                    "expected string literal",
+                                ));
+                            }
+                        }
+                        Some(tags)
+                    } else {
+                        return Err(syn::Error::new(option.span(), "expected array literal"));
+                    }
+                }
+                None => None,
+            },
+        };
+
+        if !options.is_empty() {
+            return Err(syn::Error::new(
+                options.keys().next().unwrap().span(),
+                "unexpected field, expected one of (summary, description, hidden, tags)",
+            ));
+        }
+
+        Ok(this)
+    }
+}
+
 pub struct Route {
     pub method: Method,
     pub path_params: Vec<(Slash, Option<Colon>, Ident)>,
     pub query_params: Vec<Ident>,
     pub state: Option<Type>,
     pub route_lit: LitStr,
+    pub oapi_options: Option<OapiOptions>,
 }
 
 impl Parse for Route {
@@ -49,6 +171,14 @@ impl Parse for Route {
             Ok(_) => Some(input.parse::<Type>()?),
             Err(_) => None,
         };
+        let oapi_options = input
+            .peek(Brace)
+            .then(|| {
+                let inner;
+                braced!(inner in input);
+                inner.parse::<OapiOptions>()
+            })
+            .transpose()?;
 
         Ok(Route {
             method,
@@ -56,6 +186,7 @@ impl Parse for Route {
             query_params: route.query_params,
             state,
             route_lit,
+            oapi_options,
         })
     }
 }

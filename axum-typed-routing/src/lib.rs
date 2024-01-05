@@ -39,17 +39,14 @@ pub use aide_support::*;
 #[cfg(feature = "aide")]
 mod aide_support {
     use crate::{TypedHandler, TypedRouter};
-    use aide::axum::{routing::ApiMethodRouter, ApiRouter};
+    use aide::{
+        axum::{routing::ApiMethodRouter, ApiRouter},
+        transform::TransformPathItem,
+    };
 
     type TypedApiHandler<S = ()> = fn() -> (&'static str, ApiMethodRouter<S>);
 
     pub use axum_typed_routing_macros::api_route;
-
-    /// Same as [`TypedRouter`], but with support for `aide`.
-    pub trait TypedApiRouter: TypedRouter {
-        /// Same as [`TypedRouter::typed_route`], but with support for `aide`.
-        fn typed_api_route(self, handler: TypedApiHandler<Self::State>) -> Self;
-    }
 
     impl<S> TypedRouter for ApiRouter<S>
     where
@@ -63,6 +60,20 @@ mod aide_support {
         }
     }
 
+    /// Same as [`TypedRouter`], but with support for `aide`.
+    pub trait TypedApiRouter: TypedRouter {
+        /// Same as [`TypedRouter::typed_route`], but with support for `aide`.
+        fn typed_api_route(self, handler: TypedApiHandler<Self::State>) -> Self;
+
+        /// Same as [`TypedApiRouter::typed_api_route`], but with a custom path transform for
+        /// use with `aide`.
+        fn typed_api_route_with(
+            self,
+            handler: TypedApiHandler<Self::State>,
+            transform: impl FnOnce(TransformPathItem) -> TransformPathItem,
+        ) -> Self;
+    }
+
     impl<S> TypedApiRouter for ApiRouter<S>
     where
         S: Send + Sync + Clone + 'static,
@@ -70,6 +81,15 @@ mod aide_support {
         fn typed_api_route(self, handler: TypedApiHandler<Self::State>) -> Self {
             let (path, method_router) = handler();
             self.api_route(path, method_router)
+        }
+
+        fn typed_api_route_with(
+            self,
+            handler: TypedApiHandler<Self::State>,
+            transform: impl FnOnce(TransformPathItem) -> TransformPathItem,
+        ) -> Self {
+            let (path, method_router) = handler();
+            self.api_route_with(path, method_router, transform)
         }
     }
 }
