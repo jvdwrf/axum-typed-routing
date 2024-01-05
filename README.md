@@ -1,5 +1,5 @@
 A library for creating statically-typed handlers in axum using macros, similar to Rocket. 
-See the docs for the [`route`] macro and the [`TypedRouter`] trait for more information. Currently, this library only supports axum `0.6`, but can easily be updated to `0.7`.
+See the docs for the [`route`] macro and the [`TypedRouter`] trait for more information.
 
 [![Crates.io](https://img.shields.io/crates/v/axum-typed-routing)](https://crates.io/crates/axum-typed-routing)
 [![Documentation](https://docs.rs/axum-typed-routing/badge.svg)](https://docs.rs/axum-typed-routing)
