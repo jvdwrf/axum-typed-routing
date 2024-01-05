@@ -1,5 +1,4 @@
 #![doc = include_str!("../../README.md")]
-#[cfg(feature = "aide")]
 use axum::routing::MethodRouter;
 
 type TypedHandler<S = ()> = fn() -> (&'static str, MethodRouter<S>);
