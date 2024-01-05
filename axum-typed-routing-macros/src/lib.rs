@@ -58,7 +58,7 @@ mod parsing;
 /// # Internals
 /// The macro expands to a function with signature `fn() -> (&'static str, axum::routing::MethodRouter<S>)`.
 /// The first element of the tuple is the path, and the second is axum's `MethodRouter`.
-/// 
+///
 /// The path and query are extracted using axum's `extract::Path` and `extract::Query` extractors, as the first
 /// and second parameters of the function. The remaining parameters are the parameters of the handler.
 #[proc_macro_attribute]
