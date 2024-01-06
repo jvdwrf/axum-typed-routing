@@ -326,14 +326,12 @@ impl CompiledRoute {
     pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {
         let mut doc = format!(
             "# Handler information
-- Path: `{} {}`
-- Signature: 
-    ```rust
-    {}
-    ```",
+- Method: `{}`
+- Path: `{}`
+- State: `{}`",
             self.method.to_axum_method_name(),
             self.route_lit.value(),
-            sig.to_token_stream()
+            self.state.to_token_stream(),
         );
 
         if let Some(options) = &self.oapi_options {

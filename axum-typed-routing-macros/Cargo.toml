@@ -15,5 +15,10 @@ syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 
+[dev-dependencies]
+axum = { version = "0.6", features = [] }
+aide = { version = "0.12", features = ["axum"] }
+
+
 [lib]
 proc-macro = true

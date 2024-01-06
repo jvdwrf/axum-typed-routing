@@ -30,9 +30,9 @@ mod parsing;
 ///    specified, the state type is guessed based on the parameters of the handler.
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use axum::extract::{State, Json};
-/// use axum_typed_routing::route;
+/// use axum_typed_routing_macros::route;
 ///
 /// #[route(GET "/item/:id?amount&offset")]
 /// async fn item_handler(
@@ -76,16 +76,17 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 /// Same as [`macro@route`], but with support for OpenApi using `aide`. See [`macro@route`] for more
 /// information and examples.
 ///
-///
 /// # Syntax
 /// ```ignore
 /// #[api_route(<METHOD> "<PATH>" [with <STATE>] [{
-///     summary = "<SUMMARY>",
-///     description = "<DESCRIPTION>",
-///     id = "<ID>",
-///     tags = ["<TAG>", ..],
-///     hidden = <bool>,
-///     transform = |op| { .. },
+///     summary: "<SUMMARY>",
+///     description: "<DESCRIPTION>",
+///     id: "<ID>",
+///     tags: ["<TAG>", ..],
+///     hidden: <bool>,
+///     security: { <SCHEME>: ["<SCOPE>", ..], .. },
+///     responses: { <CODE>: <TYPE>, .. },
+///     transform: |op| { .. },
 /// }])]
 /// ```
 /// - `summary` is the OpenApi summary. If not specified, the first line of the function's doc-comments
@@ -93,8 +94,35 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 /// - `id` is the OpenApi operationId. If not specified, the function's name is used.
 /// - `tags` are the OpenApi tags.
 /// - `hidden` sets whether docs should be hidden for this route.
+/// - `security` is the OpenApi security requirements.
+/// - `responses` are the OpenApi responses.
 /// - `transform` is a closure that takes an `TransformOperation` and returns an `TransformOperation`.
 /// This may override the other options. (see the crate `aide` for more information).
+/// 
+/// # Example
+/// ```
+/// use axum::extract::{State, Json};
+/// use axum_typed_routing_macros::api_route;
+/// 
+/// #[api_route(GET "/item/:id?amount&offset" with String {
+///     summary: "Get an item",
+///     description: "Get an item by id",
+///     id: "get-item",
+///     tags: ["items"],
+///     hidden: false,
+///     security: { "bearer": ["read:items"] },
+///     responses: { 200: String },
+///     transform: |op| op.tag("private"),
+/// })]
+/// async fn item_handler(
+///     id: u32,
+///     amount: Option<u32>,
+///     offset: Option<u32>,
+///     State(state): State<String>,
+/// ) -> String {
+///     todo!("handle request")
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn api_route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     match _route(attr, item.clone(), true) {
