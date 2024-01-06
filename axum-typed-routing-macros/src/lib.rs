@@ -136,46 +136,57 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         .iter()
         .filter(|attr| attr.path().is_ident("doc"));
 
-    let (inner_fn_call, method_router_ty) = match with_aide {
-        true => {
-            let http_method = format_ident!("{}_with", http_method);
-            let summary = route
-                .get_oapi_summary(&function.attrs)
-                .map(|summary| quote! { .summary(#summary) });
-            let description = route
-                .get_oapi_description(&function.attrs)
-                .map(|description| quote! { .description(#description) });
-            let hidden = route
-                .get_oapi_hidden()
-                .map(|hidden| quote! { .hidden(#hidden) });
-            let tags = route.get_oapi_tags();
-            let id = route
-                .get_oapi_id(&function.sig)
-                .map(|id| quote! { .id(#id) });
-            let transform = route.get_oapi_transform()?;
-            (
-                quote! {
-                    ::aide::axum::routing::#http_method(
-                        __inner__function__ #ty_generics,
-                        |__op__| {
-                            let __op__ = __op__
-                                #summary
-                                #description
-                                #hidden
-                                #id
-                                #(.tag(#tags))*;
-                            #transform
-                            __op__
-                        }
-                    )
-                },
-                quote! { ::aide::axum::routing::ApiMethodRouter },
-            )
-        }
-        false => (
+    let (aide_ident_docs, inner_fn_call, method_router_ty) = if with_aide {
+        let http_method = format_ident!("{}_with", http_method);
+        let summary = route
+            .get_oapi_summary(&function.attrs)
+            .map(|summary| quote! { .summary(#summary) });
+        let description = route
+            .get_oapi_description(&function.attrs)
+            .map(|description| quote! { .description(#description) });
+        let hidden = route
+            .get_oapi_hidden()
+            .map(|hidden| quote! { .hidden(#hidden) });
+        let tags = route.get_oapi_tags();
+        let id = route
+            .get_oapi_id(&function.sig)
+            .map(|id| quote! { .id(#id) });
+        let transform = route.get_oapi_transform()?;
+        let responses = route.get_oapi_responses();
+        let response_code = responses.iter().map(|response| &response.0);
+        let response_type = responses.iter().map(|response| &response.1);
+        let security = route.get_oapi_security();
+        let schemes = security.iter().map(|sec| &sec.0);
+        let scopes = security.iter().map(|sec| &sec.1);
+
+        (
+            route.ide_documentation_for_aide_methods(),
+            quote! {
+                ::aide::axum::routing::#http_method(
+                    __inner__function__ #ty_generics,
+                    |__op__| {
+                        let __op__ = __op__
+                            #summary
+                            #description
+                            #hidden
+                            #id
+                            #(.tag(#tags))*
+                            #(.security_requirement_scopes::<Vec<&'static str>, _>(#schemes, vec![#(#scopes),*]))*
+                            #(.response::<#response_code, #response_type>())*
+                            ;
+                        #transform
+                        __op__
+                    }
+                )
+            },
+            quote! { ::aide::axum::routing::ApiMethodRouter },
+        )
+    } else {
+        (
+            quote!(),
             quote! { ::axum::routing::#http_method(__inner__function__ #ty_generics) },
             quote! { ::axum::routing::MethodRouter },
-        ),
+        )
     };
 
     // Generate the code
@@ -183,6 +194,8 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         #(#fn_docs)*
         #route_docs
         #vis fn #fn_name #impl_generics() -> (&'static str, #method_router_ty<#state_type>) #where_clause {
+
+            #aide_ident_docs
 
             #asyncness fn __inner__function__ #impl_generics(
                 #path_extractor

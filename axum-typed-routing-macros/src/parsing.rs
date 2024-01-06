@@ -1,4 +1,8 @@
-use syn::{spanned::Spanned, token::Brace, Expr, ExprClosure, FieldValue, Lit, LitBool, Member};
+use quote::ToTokens;
+use syn::{
+    parse2, spanned::Spanned, token::Brace, Expr, ExprArray, ExprClosure, FieldValue, Lit, LitBool,
+    LitInt, Member,
+};
 
 use super::*;
 
@@ -35,148 +39,102 @@ impl Parse for RouteLit {
 }
 
 pub struct OapiOptions {
-    pub summary: Option<LitStr>,
-    pub description: Option<LitStr>,
-    pub hidden: Option<LitBool>,
-    pub tags: Option<Vec<LitStr>>,
-    pub id: Option<LitStr>,
-    pub transform: Option<ExprClosure>,
+    pub summary: Option<(Ident, LitStr)>,
+    pub description: Option<(Ident, LitStr)>,
+    pub id: Option<(Ident, LitStr)>,
+    pub hidden: Option<(Ident, LitBool)>,
+    pub tags: Option<(Ident, StrArray)>,
+    pub security: Option<(Ident, Security)>,
+    pub responses: Option<(Ident, Responses)>,
+    pub transform: Option<(Ident, ExprClosure)>,
+}
+
+pub struct Security(pub Vec<(LitStr, StrArray)>);
+impl Parse for Security {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let inner;
+        braced!(inner in input);
+
+        let mut arr = Vec::new();
+        while !inner.is_empty() {
+            let scheme = inner.parse::<LitStr>()?;
+            let _ = inner.parse::<Token![:]>()?;
+            let scopes = inner.parse::<StrArray>()?;
+            let _ = inner.parse::<Token![,]>().ok();
+            arr.push((scheme, scopes));
+        }
+
+        Ok(Self(arr))
+    }
+}
+
+pub struct Responses(pub Vec<(LitInt, Type)>);
+impl Parse for Responses {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let inner;
+        braced!(inner in input);
+
+        let mut arr = Vec::new();
+        while !inner.is_empty() {
+            let status = inner.parse::<LitInt>()?;
+            let _ = inner.parse::<Token![:]>()?;
+            let ty = inner.parse::<Type>()?;
+            let _ = inner.parse::<Token![,]>().ok();
+            arr.push((status, ty));
+        }
+
+        Ok(Self(arr))
+    }
+}
+
+#[derive(Clone)]
+pub struct StrArray(pub Vec<LitStr>);
+impl Parse for StrArray {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let inner;
+        bracketed!(inner in input);
+        let mut arr = Vec::new();
+        while !inner.is_empty() {
+            arr.push(inner.parse::<LitStr>()?);
+            inner.parse::<Token![,]>().ok();
+        }
+        Ok(Self(arr))
+    }
 }
 
 impl Parse for OapiOptions {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut options = HashMap::new();
-        while !input.is_empty() {
-            let field_val = input.parse::<FieldValue>()?;
-            let Member::Named(ident) = field_val.member else {
-                return Err(input.error("expected named field"));
-            };
-            options.insert(ident.clone(), field_val.expr);
-            input.parse::<Token![,]>().ok();
-        }
-
-        let this = Self {
-            summary: match options.remove(&Ident::new("summary", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Lit(expr_lit) = option {
-                        match expr_lit.lit {
-                            Lit::Str(lit_str) => Some(lit_str),
-                            _ => {
-                                return Err(syn::Error::new(
-                                    expr_lit.span(),
-                                    "expected string literal",
-                                ))
-                            }
-                        }
-                    } else {
-                        return Err(syn::Error::new(option.span(), "expected string literal"));
-                    }
-                }
-                None => None,
-            },
-            description: match options.remove(&Ident::new("description", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Lit(expr_lit) = option {
-                        match expr_lit.lit {
-                            Lit::Str(lit_str) => Some(lit_str),
-                            _ => {
-                                return Err(syn::Error::new(
-                                    expr_lit.span(),
-                                    "expected string literal",
-                                ))
-                            }
-                        }
-                    } else {
-                        return Err(syn::Error::new(option.span(), "expected string literal"));
-                    }
-                }
-                None => None,
-            },
-            hidden: match options.remove(&Ident::new("hidden", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Lit(expr_lit) = option {
-                        match expr_lit.lit {
-                            Lit::Bool(lit_bool) => Some(lit_bool),
-                            _ => {
-                                return Err(syn::Error::new(
-                                    expr_lit.span(),
-                                    "expected boolean literal",
-                                ))
-                            }
-                        }
-                    } else {
-                        return Err(syn::Error::new(option.span(), "expected boolean literal"));
-                    }
-                }
-                None => None,
-            },
-            tags: match options.remove(&Ident::new("tags", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Array(expr_array) = option {
-                        let mut tags = Vec::new();
-                        for expr in expr_array.elems {
-                            if let Expr::Lit(expr_lit) = expr {
-                                match expr_lit.lit {
-                                    Lit::Str(lit_str) => tags.push(lit_str),
-                                    _ => {
-                                        return Err(syn::Error::new(
-                                            expr_lit.span(),
-                                            "expected string literal",
-                                        ))
-                                    }
-                                }
-                            } else {
-                                return Err(syn::Error::new(
-                                    expr.span(),
-                                    "expected string literal",
-                                ));
-                            }
-                        }
-                        Some(tags)
-                    } else {
-                        return Err(syn::Error::new(option.span(), "expected array literal"));
-                    }
-                }
-                None => None,
-            },
-            id: match options.remove(&Ident::new("id", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Lit(expr_lit) = option {
-                        match expr_lit.lit {
-                            Lit::Str(lit_str) => Some(lit_str),
-                            _ => {
-                                return Err(syn::Error::new(
-                                    expr_lit.span(),
-                                    "expected string literal",
-                                ))
-                            }
-                        }
-                    } else {
-                        return Err(syn::Error::new(option.span(), "expected string literal"));
-                    }
-                }
-                None => None,
-            },
-            transform: match options.remove(&Ident::new("transform", Span::call_site())) {
-                Some(option) => {
-                    if let Expr::Closure(expr_closure) = option {
-                        Some(expr_closure)
-                    } else {
-                        return Err(syn::Error::new(
-                            option.span(),
-                            "expected closure expression",
-                        ));
-                    }
-                }
-                None => None,
-            },
+        let mut this = Self {
+            summary: None,
+            description: None,
+            id: None,
+            hidden: None,
+            tags: None,
+            security: None,
+            responses: None,
+            transform: None,
         };
 
-        if !options.is_empty() {
-            return Err(syn::Error::new(
-                options.keys().next().unwrap().span(),
-                "unexpected field, expected one of (summary, description, hidden, tags, id, transform)",
-            ));
+        while !input.is_empty() {
+            let ident = input.parse::<Ident>()?;
+            let _ = input.parse::<Token![:]>()?;
+            match ident.to_string().as_str() {
+                "summary" => this.summary = Some((ident, input.parse()?)),
+                "description" => this.description = Some((ident, input.parse()?)),
+                "id" => this.id = Some((ident, input.parse()?)),
+                "hidden" => this.hidden = Some((ident, input.parse()?)),
+                "tags" => this.tags = Some((ident, input.parse()?)),
+                "security" => this.security = Some((ident, input.parse()?)),
+                "responses" => this.responses = Some((ident, input.parse()?)),
+                "transform" => this.transform = Some((ident, input.parse()?)),
+                _ => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        "unexpected field, expected one of (summary, description, id, hidden, tags, security, responses, transform)",
+                    ))
+                }
+            }
+            let _ = input.parse::<Token![,]>().ok();
         }
 
         Ok(this)

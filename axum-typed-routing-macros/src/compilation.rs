@@ -1,7 +1,7 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, Attribute, Expr, Lit, LitBool, Pat, PatType};
+use syn::{spanned::Spanned, Attribute, Expr, Lit, LitBool, LitInt, Pat, PatType};
 
-use crate::parsing::OapiOptions;
+use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
 use super::*;
 
@@ -166,10 +166,63 @@ impl CompiledRoute {
             .collect()
     }
 
+    pub fn ide_documentation_for_aide_methods(&self) -> TokenStream2 {
+        let Some(options) = &self.oapi_options else {
+            return quote! {};
+        };
+        let summary = options.summary.as_ref().map(|(ident, _)| {
+            let method = Ident::new("summary", ident.span());
+            quote!( let x = x.#method(""); )
+        });
+        let description = options.description.as_ref().map(|(ident, _)| {
+            let method = Ident::new("description", ident.span());
+            quote!( let x = x.#method(""); )
+        });
+        let id = options.id.as_ref().map(|(ident, _)| {
+            let method = Ident::new("id", ident.span());
+            quote!( let x = x.#method(""); )
+        });
+        let hidden = options.hidden.as_ref().map(|(ident, _)| {
+            let method = Ident::new("hidden", ident.span());
+            quote!( let x = x.#method(false); )
+        });
+        let tags = options.tags.as_ref().map(|(ident, _)| {
+            let method = Ident::new("tag", ident.span());
+            quote!( let x = x.#method(""); )
+        });
+        let security = options.security.as_ref().map(|(ident, _)| {
+            let method = Ident::new("security_requirement_scopes", ident.span());
+            quote!( let x = x.#method("", [""]); )
+        });
+        let responses = options.responses.as_ref().map(|(ident, _)| {
+            let method = Ident::new("response", ident.span());
+            quote!( let x = x.#method::<0, String>(); )
+        });
+        let transform = options.transform.as_ref().map(|(ident, _)| {
+            let method = Ident::new("with", ident.span());
+            quote!( let x = x.#method(|x|x); )
+        });
+
+        quote! {
+            #[allow(unused)]
+            #[allow(clippy::no_effect)]
+            fn ____ide_documentation_for_aide____(x: ::aide::transform::TransformOperation) {
+                #summary
+                #description
+                #id
+                #hidden
+                #tags
+                #security
+                #responses
+                #transform
+            }
+        }
+    }
+
     pub fn get_oapi_summary(&self, attrs: &[Attribute]) -> Option<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(summary) = &oapi_options.summary {
-                return Some(summary.clone());
+                return Some(summary.1.clone());
             }
         }
         doc_iter(attrs).next().cloned()
@@ -178,7 +231,7 @@ impl CompiledRoute {
     pub fn get_oapi_description(&self, attrs: &[Attribute]) -> Option<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(description) = &oapi_options.description {
-                return Some(description.clone());
+                return Some(description.1.clone());
             }
         }
         doc_iter(attrs)
@@ -195,7 +248,7 @@ impl CompiledRoute {
     pub fn get_oapi_hidden(&self) -> Option<LitBool> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(hidden) = &oapi_options.hidden {
-                return Some(hidden.clone());
+                return Some(hidden.1.clone());
             }
         }
         None
@@ -204,7 +257,7 @@ impl CompiledRoute {
     pub fn get_oapi_tags(&self) -> Vec<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(tags) = &oapi_options.tags {
-                return tags.clone();
+                return tags.1 .0.clone();
             }
         }
         Vec::new()
@@ -213,7 +266,7 @@ impl CompiledRoute {
     pub fn get_oapi_id(&self, sig: &Signature) -> Option<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(id) = &oapi_options.id {
-                return Some(id.clone());
+                return Some(id.1.clone());
             }
         }
         Some(LitStr::new(&sig.ident.to_string(), sig.ident.span()))
@@ -222,15 +275,15 @@ impl CompiledRoute {
     pub fn get_oapi_transform(&self) -> syn::Result<Option<TokenStream2>> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(transform) = &oapi_options.transform {
-                if transform.inputs.len() != 1 {
+                if transform.1.inputs.len() != 1 {
                     return Err(syn::Error::new(
-                        transform.span(),
+                        transform.1.span(),
                         "expected a single identifier",
                     ));
                 }
 
-                let pat = transform.inputs.first().unwrap();
-                let body = &transform.body;
+                let pat = transform.1.inputs.first().unwrap();
+                let body = &transform.1.body;
 
                 if let Pat::Ident(pat_ident) = pat {
                     let ident = &pat_ident.ident;
@@ -247,6 +300,27 @@ impl CompiledRoute {
             }
         }
         Ok(None)
+    }
+
+    pub fn get_oapi_responses(&self) -> Vec<(LitInt, Type)> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some((_ident, Responses(responses))) = &oapi_options.responses {
+                return responses.clone();
+            }
+        }
+        Default::default()
+    }
+
+    pub fn get_oapi_security(&self) -> Vec<(LitStr, Vec<LitStr>)> {
+        if let Some(oapi_options) = &self.oapi_options {
+            if let Some((_ident, Security(security))) = &oapi_options.security {
+                return security
+                    .iter()
+                    .map(|(scheme, StrArray(scopes))| (scheme.clone(), scopes.clone()))
+                    .collect();
+            }
+        }
+        Default::default()
     }
 
     pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {

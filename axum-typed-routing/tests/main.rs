@@ -107,8 +107,15 @@ mod aide_support {
         description: "MyDescription",
         hidden: false,
         id: "MyRoute",
-        transform: |x| x.summary("OverriddenSummary")
         tags: ["MyTag1", "MyTag2"],
+        security: {
+            "MySecurity1": ["MyScope1", "MyScope2"],
+            "MySecurity2": [],
+        },
+        responses: {
+            300: String,
+        },
+        transform: |x| x.summary("OverriddenSummary"),
     })]
     async fn get_gello_with_attributes(state: State<String>) -> String {
         String::from("Hello!")
