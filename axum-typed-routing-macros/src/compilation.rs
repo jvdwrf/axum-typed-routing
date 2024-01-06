@@ -324,8 +324,8 @@ impl CompiledRoute {
     }
 
     pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {
-        let doc = format!(
-            "## Handler information
+        let mut doc = format!(
+            "# Handler information
 - Path: `{} {}`
 - Signature: 
     ```rust
@@ -335,6 +335,53 @@ impl CompiledRoute {
             self.route_lit.value(),
             sig.to_token_stream()
         );
+
+        if let Some(options) = &self.oapi_options {
+            let summary = options
+                .summary
+                .as_ref()
+                .map(|(_, summary)| format!("\"{}\"", summary.value()))
+                .unwrap_or("None".to_string());
+            let description = options
+                .description
+                .as_ref()
+                .map(|(_, description)| format!("\"{}\"", description.value()))
+                .unwrap_or("None".to_string());
+            let id = options
+                .id
+                .as_ref()
+                .map(|(_, id)| format!("\"{}\"", id.value()))
+                .unwrap_or("None".to_string());
+            let hidden = options
+                .hidden
+                .as_ref()
+                .map(|(_, hidden)| hidden.value().to_string())
+                .unwrap_or("None".to_string());
+            let tags = options
+                .tags
+                .as_ref()
+                .map(|(_, tags)| tags.to_string())
+                .unwrap_or("[]".to_string());
+            let security = options
+                .security
+                .as_ref()
+                .map(|(_, security)| security.to_string())
+                .unwrap_or("{}".to_string());
+
+            doc = format!(
+                "{doc}
+                
+## OpenAPI
+- Summary: `{summary}`
+- Description: `{description}`
+- Operation id: `{id}`
+- Tags: `{tags}`
+- Security: `{security}`
+- Hidden: `{hidden}`
+"
+            );
+        }
+
         quote!(
             #[doc = #doc]
         )

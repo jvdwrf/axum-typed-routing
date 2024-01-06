@@ -1,8 +1,5 @@
 use quote::ToTokens;
-use syn::{
-    parse2, spanned::Spanned, token::Brace, Expr, ExprArray, ExprClosure, FieldValue, Lit, LitBool,
-    LitInt, Member,
-};
+use syn::{token::Brace, ExprClosure, LitBool, LitInt};
 
 use super::*;
 
@@ -68,6 +65,23 @@ impl Parse for Security {
     }
 }
 
+impl ToString for Security {
+    fn to_string(&self) -> String {
+        let mut s = String::new();
+        s.push('{');
+        for (i, (scheme, scopes)) in self.0.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&scheme.value());
+            s.push_str(": ");
+            s.push_str(&scopes.to_string());
+        }
+        s.push('}');
+        s
+    }
+}
+
 pub struct Responses(pub Vec<(LitInt, Type)>);
 impl Parse for Responses {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -87,6 +101,23 @@ impl Parse for Responses {
     }
 }
 
+impl ToString for Responses {
+    fn to_string(&self) -> String {
+        let mut s = String::new();
+        s.push('{');
+        for (i, (status, ty)) in self.0.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push_str(&status.to_string());
+            s.push_str(": ");
+            s.push_str(&ty.to_token_stream().to_string());
+        }
+        s.push('}');
+        s
+    }
+}
+
 #[derive(Clone)]
 pub struct StrArray(pub Vec<LitStr>);
 impl Parse for StrArray {
@@ -99,6 +130,23 @@ impl Parse for StrArray {
             inner.parse::<Token![,]>().ok();
         }
         Ok(Self(arr))
+    }
+}
+
+impl ToString for StrArray {
+    fn to_string(&self) -> String {
+        let mut s = String::new();
+        s.push('[');
+        for (i, lit) in self.0.iter().enumerate() {
+            if i > 0 {
+                s.push_str(", ");
+            }
+            s.push('"');
+            s.push_str(&lit.value());
+            s.push('"');
+        }
+        s.push(']');
+        s
     }
 }
 
