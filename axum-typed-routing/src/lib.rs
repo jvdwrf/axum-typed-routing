@@ -1,4 +1,35 @@
 #![doc = include_str!("../../README.md")]
+//!
+//! ## Basic usage
+//! The following example demonstrates the basic usage of the library.
+//! On top of any regular handler, you can add the [`route`] macro to create a typed route.
+//! Any path- or query-parameters in the url will be type-checked at compile-time, and properly
+//! extracted into the handler.
+//!
+//! The following example shows how the path parameter `id`, and query parameters `amount` and
+//! `offset` are type-checked and extracted into the handler.
+//!
+//! ```
+#![doc = include_str!("../examples/basic.rs")]
+//! ```
+//!
+//! Some valid url's as get-methods are:
+//! - `/item/1?amount=2&offset=3`
+//! - `/item/1?amount=2`
+//! - `/item/1?offset=3`
+//! - `/item/500`
+//! 
+//! By marking the `amount` and `offset` parameters as `Option<T>`, they become optional.
+//!
+//! ## Example with `aide`
+//! When the `aide` feature is enabled, it's possible to automatically generate OpenAPI
+//! documentation for the routes. The [`api_route`] macro is used in place of the [`route`] macro.
+//! 
+//! Please read the [`aide`] documentation for more information on usage.
+//! ```
+#![doc = include_str!("../examples/aide.rs")]
+//! ```
+
 use axum::routing::MethodRouter;
 
 type TypedHandler<S = ()> = fn() -> (&'static str, MethodRouter<S>);
