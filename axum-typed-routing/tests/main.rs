@@ -1,7 +1,14 @@
 #![allow(unused)]
 #![allow(clippy::extra_unused_type_parameters)]
 
-use axum::{extract::State, Form, Json};
+use std::net::TcpListener;
+
+use axum::{
+    extract::{Path, State},
+    routing::get,
+    Form, Json,
+};
+use axum_test::TestServer;
 use axum_typed_routing::TypedRouter;
 use axum_typed_routing_macros::route;
 
@@ -15,31 +22,69 @@ async fn generic_handler_with_complex_options<T: 'static>(
     hello: State<String>,
     Json(mut json): Json<u32>,
 ) -> String {
-    format!("Hello, {}!", name)
+    format!("Hello, {id} - {user_id} - {name}!")
 }
 
-#[route(POST "/hello")]
-async fn with_state(state: State<String>) -> String {
+#[route(POST "/one")]
+async fn one(state: State<String>) -> String {
     String::from("Hello!")
 }
 
-#[route(POST "/hello")]
-async fn without_state(mut form: Form<u32>) -> String {
+#[route(POST "/two")]
+async fn two() -> String {
     String::from("Hello!")
 }
 
-#[test]
-fn test_normal() {
-    let _: axum::Router = axum::Router::new()
+#[route(GET "/three/:id")]
+async fn three(id: u32) -> String {
+    format!("Hello {id}!")
+}
+
+#[route(GET "/four?id")]
+async fn four(id: u32) -> String {
+    format!("Hello {id:?}!")
+    // String::from("Hello 123!")
+}
+
+#[tokio::test]
+async fn test_normal() {
+    let router: axum::Router = axum::Router::new()
         .typed_route(generic_handler_with_complex_options::<u32>)
-        .typed_route(with_state)
-        .with_state("state".to_string());
+        .typed_route(one)
+        .with_state("state".to_string())
+        .typed_route(two)
+        .typed_route(three)
+        .typed_route(four);
+
+    let server = TestServer::new(router).unwrap();
+
+    let response = server.post("/one").await;
+    response.assert_status_ok();
+    response.assert_text("Hello!");
+
+    let response = server.post("/two").await;
+    response.assert_status_ok();
+    response.assert_text("Hello!");
+
+    let response = server.get("/three/123").await;
+    response.assert_status_ok();
+    response.assert_text("Hello 123!");
+
+    let response = server.get("/four").add_query_param("id", 123).await;
+    response.assert_status_ok();
+    response.assert_text("Hello 123!");
+
+    let response = server
+        .get("/hello/123")
+        .add_query_param("user_id", 321.to_string())
+        .add_query_param("name", "John".to_string())
+        .json(&100)
+        .await;
+    response.assert_status_ok();
+    response.assert_text("Hello, 123 - 321 - John!");
 
     let (path, method_router) = generic_handler_with_complex_options::<u32>();
     assert_eq!(path, "/hello/:id");
-
-    let (path, method_router) = with_state();
-    assert_eq!(path, "/hello");
 }
 
 #[cfg(feature = "aide")]
@@ -68,7 +113,7 @@ mod aide_support {
     #[test]
     fn test_aide() {
         let router: aide::axum::ApiRouter = aide::axum::ApiRouter::new()
-            .typed_route(with_state)
+            .typed_route(one)
             .typed_api_route(get_hello)
             .with_state("state".to_string());
 
@@ -136,6 +181,15 @@ mod aide_support {
             vec!["MyTag1".to_string(), "MyTag2".to_string()]
         );
         assert_eq!(get_op.operation_id, Some("MyRoute".to_string()));
+    }
+
+    /// summary
+    ///
+    /// description
+    /// description
+    #[api_route(GET "/hello")]
+    async fn get_gello_without_attributes(state: State<String>) -> String {
+        String::from("Hello!")
     }
 
     fn path_item<'a>(api: &'a OpenApi, path: &str) -> &'a aide::openapi::PathItem {

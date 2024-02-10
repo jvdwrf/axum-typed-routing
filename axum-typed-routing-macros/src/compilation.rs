@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, Attribute, Expr, Lit, LitBool, LitInt, Pat, PatType};
+use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
@@ -18,6 +18,7 @@ pub struct CompiledRoute {
 impl CompiledRoute {
     pub fn to_axum_path_string(&self) -> String {
         let mut path = String::new();
+
         for (_slash, ident, colon) in &self.path_params {
             path.push('/');
             if colon.is_some() {
@@ -25,18 +26,31 @@ impl CompiledRoute {
             }
             path.push_str(&ident.to_string());
         }
+
         path
     }
 
     /// Removes the arguments in `route` from `args`, and merges them in the output.
-    pub fn from_route(route: Route, sig: &Signature, with_aide: bool) -> syn::Result<Self> {
+    pub fn from_route(mut route: Route, function: &ItemFn, with_aide: bool) -> syn::Result<Self> {
         if !with_aide && route.oapi_options.is_some() {
             return Err(syn::Error::new(
                 Span::call_site(),
                 "Use `api_route` instead of `route` to use OpenAPI options",
             ));
+        } else if with_aide && route.oapi_options.is_none() {
+            route.oapi_options = Some(OapiOptions {
+                summary: None,
+                description: None,
+                id: None,
+                hidden: None,
+                tags: None,
+                security: None,
+                responses: None,
+                transform: None,
+            });
         }
 
+        let sig = &function.sig;
         let mut arg_map = sig
             .inputs
             .iter()
@@ -79,6 +93,10 @@ impl CompiledRoute {
             query_params.push((ident, ty));
         }
 
+        if let Some(options) = route.oapi_options.as_mut() {
+            options.merge_with_fn(function)
+        }
+
         Ok(Self {
             route_lit: route.route_lit,
             method: route.method,
@@ -90,31 +108,49 @@ impl CompiledRoute {
     }
 
     pub fn path_extractor(&self) -> Option<TokenStream2> {
-        match self.path_params.is_empty() {
-            true => None,
-            false => {
-                let path_iter = self
-                    .path_params
-                    .iter()
-                    .filter_map(|(_slash, ident, ty)| ty.as_ref().map(|(_colon, ty)| (ident, ty)));
-                let idents = path_iter.clone().map(|item| item.0);
-                let types = path_iter.clone().map(|item| item.1);
-                Some(quote! {
-                    ::axum::extract::Path((#(#idents,)*)): ::axum::extract::Path<(#(#types,)*)>,
-                })
-            }
+        if !self.path_params.iter().any(|(_, _, colon)| colon.is_some()) {
+            return None;
         }
+
+        let path_iter = self
+            .path_params
+            .iter()
+            .filter_map(|(_slash, ident, ty)| ty.as_ref().map(|(_colon, ty)| (ident, ty)));
+        let idents = path_iter.clone().map(|item| item.0);
+        let types = path_iter.clone().map(|item| item.1);
+        Some(quote! {
+            ::axum::extract::Path((#(#idents,)*)): ::axum::extract::Path<(#(#types,)*)>,
+        })
     }
 
     pub fn query_extractor(&self) -> Option<TokenStream2> {
+        if self.query_params.is_empty() {
+            return None;
+        }
+
+        let idents = self.query_params.iter().map(|item| &item.0);
+        Some(quote! {
+            ::axum::extract::Query(__QueryParams__ {
+                #(#idents,)*
+            }): ::axum::extract::Query<__QueryParams__>,
+        })
+    }
+
+    pub fn query_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
         match self.query_params.is_empty() {
             true => None,
             false => {
                 let idents = self.query_params.iter().map(|item| &item.0);
                 let types = self.query_params.iter().map(|item| &item.1);
+                let derive = match with_aide {
+                    true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
+                    false => quote! { #[derive(::serde::Deserialize)] },
+                };
                 Some(quote! {
-                    #[allow(unused)]
-                    ::axum::extract::Query((#( #idents,)*)): ::axum::extract::Query<(#(#types,)*)>,
+                    #derive
+                    struct __QueryParams__ {
+                        #(#idents: #types,)*
+                    }
                 })
             }
         }
@@ -219,30 +255,22 @@ impl CompiledRoute {
         }
     }
 
-    pub fn get_oapi_summary(&self, attrs: &[Attribute]) -> Option<LitStr> {
+    pub fn get_oapi_summary(&self) -> Option<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(summary) = &oapi_options.summary {
                 return Some(summary.1.clone());
             }
         }
-        doc_iter(attrs).next().cloned()
+        None
     }
 
-    pub fn get_oapi_description(&self, attrs: &[Attribute]) -> Option<LitStr> {
+    pub fn get_oapi_description(&self) -> Option<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(description) = &oapi_options.description {
                 return Some(description.1.clone());
             }
         }
-        doc_iter(attrs)
-            .skip(2)
-            .map(|item| item.value())
-            .reduce(|mut acc, item| {
-                acc.push('\n');
-                acc.push_str(&item);
-                acc
-            })
-            .map(|item| LitStr::new(&item, proc_macro2::Span::call_site()))
+        None
     }
 
     pub fn get_oapi_hidden(&self) -> Option<LitBool> {
@@ -323,7 +351,7 @@ impl CompiledRoute {
         Default::default()
     }
 
-    pub(crate) fn to_doc_comments(&self, sig: &Signature) -> TokenStream2 {
+    pub(crate) fn to_doc_comments(&self) -> TokenStream2 {
         let mut doc = format!(
             "# Handler information
 - Method: `{}`
@@ -406,22 +434,4 @@ fn guess_state_type(sig: &syn::Signature) -> Type {
     }
 
     parse_quote! { () }
-}
-
-fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
-    attrs
-        .iter()
-        .filter(|attr| attr.path().is_ident("doc"))
-        .map(|attr| {
-            let Meta::NameValue(meta) = &attr.meta else {
-                panic!("doc attribute is not a name-value attribute");
-            };
-            let Expr::Lit(lit) = &meta.value else {
-                panic!("doc attribute is not a string literal");
-            };
-            let Lit::Str(lit_str) = &lit.lit else {
-                panic!("doc attribute is not a string literal");
-            };
-            lit_str
-        })
 }

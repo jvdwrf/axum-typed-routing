@@ -16,10 +16,17 @@ features = ["aide"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.6"
-axum-macros = "0.3"
-aide = { version = "0.12", features = ["axum"], optional = true }
+axum = "0.7"
+axum-macros = "0.4"
+aide = { version = "0.13", features = ["axum"], optional = true }
 axum-typed-routing-macros = {version = "0.1", path = "../axum-typed-routing-macros" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+axum-test = { version = "14", features = [] }
+serde = { version = "1", features = ["derive"] }
+json = "0.12"
+schemars = "0.8"
 
 [features]
 default = []

@@ -98,12 +98,12 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 /// - `responses` are the OpenApi responses.
 /// - `transform` is a closure that takes an `TransformOperation` and returns an `TransformOperation`.
 /// This may override the other options. (see the crate `aide` for more information).
-/// 
+///
 /// # Example
 /// ```
 /// use axum::extract::{State, Json};
 /// use axum_typed_routing_macros::api_route;
-/// 
+///
 /// #[api_route(GET "/item/:id?amount&offset" with String {
 ///     summary: "Get an item",
 ///     description: "Get an item by id",
@@ -141,16 +141,17 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
     let function = syn::parse::<ItemFn>(item)?;
 
     // Now we can compile the route
-    let route = CompiledRoute::from_route(route, &function.sig, with_aide)?;
+    let route = CompiledRoute::from_route(route, &function, with_aide)?;
     let path_extractor = route.path_extractor();
     let query_extractor = route.query_extractor();
+    let query_params_struct = route.query_params_struct(with_aide);
     let state_type = &route.state;
     let axum_path = route.to_axum_path_string();
     let http_method = route.method.to_axum_method_name();
     let remaining_numbered_pats = route.remaining_pattypes_numbered(&function.sig.inputs);
     let extracted_idents = route.extracted_idents();
     let remaining_numbered_idents = remaining_numbered_pats.iter().map(|pat_type| &pat_type.pat);
-    let route_docs = route.to_doc_comments(&function.sig);
+    let route_docs = route.to_doc_comments();
 
     // Get the variables we need for code generation
     let fn_name = &function.sig.ident;
@@ -167,10 +168,10 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
     let (aide_ident_docs, inner_fn_call, method_router_ty) = if with_aide {
         let http_method = format_ident!("{}_with", http_method);
         let summary = route
-            .get_oapi_summary(&function.attrs)
+            .get_oapi_summary()
             .map(|summary| quote! { .summary(#summary) });
         let description = route
-            .get_oapi_description(&function.attrs)
+            .get_oapi_description()
             .map(|description| quote! { .description(#description) });
         let hidden = route
             .get_oapi_hidden()
@@ -223,8 +224,9 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         #route_docs
         #vis fn #fn_name #impl_generics() -> (&'static str, #method_router_ty<#state_type>) #where_clause {
 
-            #aide_ident_docs
+            #query_params_struct
 
+            #aide_ident_docs
             #asyncness fn __inner__function__ #impl_generics(
                 #path_extractor
                 #query_extractor

@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{token::Brace, ExprClosure, LitBool, LitInt};
+use syn::{token::Brace, Attribute, Expr, ExprClosure, Lit, LitBool, LitInt};
 
 use super::*;
 
@@ -187,6 +187,49 @@ impl Parse for OapiOptions {
 
         Ok(this)
     }
+}
+
+impl OapiOptions {
+    pub fn merge_with_fn(&mut self, function: &ItemFn) {
+        if self.description.is_none() {
+            self.description = doc_iter(&function.attrs)
+                .skip(2)
+                .map(|item| item.value())
+                .reduce(|mut acc, item| {
+                    acc.push('\n');
+                    acc.push_str(&item);
+                    acc
+                })
+                .map(|item| (parse_quote!(description), parse_quote!(#item)))
+        }
+        if self.summary.is_none() {
+            self.summary = doc_iter(&function.attrs)
+                .next()
+                .map(|item| (parse_quote!(summary), item.clone()))
+        }
+        if self.id.is_none() {
+            let id = &function.sig.ident;
+            self.id = Some((parse_quote!(id), LitStr::new(&id.to_string(), id.span())));
+        }
+    }
+}
+
+fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
+    attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("doc"))
+        .map(|attr| {
+            let Meta::NameValue(meta) = &attr.meta else {
+                panic!("doc attribute is not a name-value attribute");
+            };
+            let Expr::Lit(lit) = &meta.value else {
+                panic!("doc attribute is not a string literal");
+            };
+            let Lit::Str(lit_str) = &lit.lit else {
+                panic!("doc attribute is not a string literal");
+            };
+            lit_str
+        })
 }
 
 pub struct Route {
