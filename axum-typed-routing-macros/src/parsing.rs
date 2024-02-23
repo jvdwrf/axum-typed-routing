@@ -37,6 +37,29 @@ impl RouteParser {
             ));
         }
 
+        let path_param_len = path_params.len();
+        for (i, (_slash, path_param)) in path_params.iter().enumerate() {
+            match path_param {
+                PathParam::WildCard(_, _, _, _) => {
+                    if i != path_param_len - 1 {
+                        return Err(syn::Error::new(
+                            span,
+                            "wildcard path param must be the last path param",
+                        ));
+                    }
+                }
+                PathParam::Capture(_, _, _, _) => (),
+                PathParam::Static(lit) => {
+                    if lit.value() == "*" && i != path_param_len - 1 {
+                        return Err(syn::Error::new(
+                            span,
+                            "wildcard path param must be the last path param",
+                        ));
+                    }
+                }
+            }
+        }
+
         let mut query_params = Vec::new();
         if split_route.len() == 2 {
             let query = split_route[1];
@@ -63,15 +86,15 @@ impl PathParam {
         matches!(self, Self::Capture(..) | Self::WildCard(..))
     }
 
-    pub fn lit(&self) -> &LitStr {
-        match self {
-            Self::Capture(lit, _, _, _) => lit,
-            Self::WildCard(lit, _, _, _) => lit,
-            Self::Static(lit) => lit,
-        }
-    }
+    // pub fn lit(&self) -> &LitStr {
+    //     match self {
+    //         Self::Capture(lit, _, _, _) => lit,
+    //         Self::WildCard(lit, _, _, _) => lit,
+    //         Self::Static(lit) => lit,
+    //     }
+    // }
 
-    pub fn capture(&self) -> Option<(&Ident, &Box<Type>)> {
+    pub fn capture(&self) -> Option<(&Ident, &Type)> {
         match self {
             Self::Capture(_, _, ident, ty) => Some((ident, ty)),
             Self::WildCard(_, _, ident, ty) => Some((ident, ty)),

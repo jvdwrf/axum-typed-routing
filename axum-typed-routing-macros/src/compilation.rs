@@ -80,7 +80,7 @@ impl CompiledRoute {
         for (_slash, path_param) in &mut route.path_params {
             match path_param {
                 PathParam::Capture(_lit, _colon, ident, ty) => {
-                    let (new_ident, new_ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+                    let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
                         syn::Error::new(
                             ident.span(),
                             format!("path parameter `{}` not found in function arguments", ident),
@@ -90,7 +90,7 @@ impl CompiledRoute {
                     *ty = new_ty;
                 }
                 PathParam::WildCard(_lit, _star, ident, ty) => {
-                    let (new_ident, new_ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+                    let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
                         syn::Error::new(
                             ident.span(),
                             format!("path parameter `{}` not found in function arguments", ident),
@@ -99,7 +99,7 @@ impl CompiledRoute {
                     *ident = new_ident;
                     *ty = new_ty;
                 },
-                PathParam::Static(lit) => {}
+                PathParam::Static(_lit) => {}
             }
         }
 
