@@ -18,15 +18,16 @@ impl RouteParser {
         if split_route.len() > 2 {
             return Err(syn::Error::new(span, "expected at most one '?'"));
         }
+
         let path = split_route[0];
-        let query = match split_route.get(1) {
-            Some(query) => query,
-            None => "",
-        };
+        if !path.starts_with('/') {
+            return Err(syn::Error::new(span, "expected path to start with '/'"));
+        }
+        let path = path.strip_prefix('/').unwrap();
 
         let mut path_params = Vec::new();
         #[allow(clippy::never_loop)]
-        for path_param in path.split('/').skip(1) {
+        for path_param in path.split('/') {
             if let Some(param) = PathParam::new(path_param, span) {
                 path_params.push((Slash(span), param));
             } else {
@@ -38,8 +39,8 @@ impl RouteParser {
         }
 
         let mut query_params = Vec::new();
-
         if split_route.len() == 2 {
+            let query = split_route[1];
             for query_param in query.split('&') {
                 query_params.push(Ident::new(query_param, span));
             }
@@ -71,35 +72,6 @@ impl PathParam {
         }
     }
 }
-
-// impl Parse for RouteLit {
-//     fn parse(input: ParseStream) -> syn::Result<Self> {
-//         let mut path_params = Vec::new();
-//         while let Ok(slash) = input.parse::<Token![/]>() {
-//             if let Some(param) = PathParam::new(input.parse::<LitStr>()?) {
-//                 path_params.push((slash, param));
-//             } else {
-//                 return Err(input.error("expected path parameter or base path"));
-//             }
-//         }
-//         let mut query_params = Vec::new();
-//         if input.parse::<Token![?]>().is_ok() {
-//             while let Ok(ident) = input.parse::<Ident>() {
-//                 query_params.push(ident);
-//                 if input.parse::<Token![&]>().is_err() {
-//                     if !input.is_empty() {
-//                         Err(input.error("expected &"))?;
-//                     }
-//                     break;
-//                 }
-//             }
-//         }
-//         Ok(RouteLit {
-//             path_params,
-//             query_params,
-//         })
-//     }
-// }
 
 pub struct OapiOptions {
     pub summary: Option<(Ident, LitStr)>,

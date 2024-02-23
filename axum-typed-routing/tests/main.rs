@@ -47,7 +47,7 @@ async fn four(id: u32) -> String {
 }
 
 // Tests that hyphens are allowed in route names
-#[route(GET "foo-bar")]
+#[route(GET "/foo-bar")]
 async fn foo_bar() -> String {
     String::from("Hello!")
 }
