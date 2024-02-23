@@ -10,7 +10,7 @@ use super::*;
 pub struct CompiledRoute {
     pub method: Method,
     #[allow(clippy::type_complexity)]
-    pub path_params: Vec<(Slash, LitStr, Option<(Colon, Ident, Box<Type>)>)>,
+    pub path_params: Vec<(Slash, PathParam)>,
     pub query_params: Vec<(Ident, Box<Type>)>,
     pub state: Type,
     pub route_lit: LitStr,
@@ -21,12 +21,23 @@ impl CompiledRoute {
     pub fn to_axum_path_string(&self) -> String {
         let mut path = String::new();
 
-        for (_slash, ident, colon) in &self.path_params {
+        for (_slash, param) in &self.path_params {
             path.push('/');
-            if colon.is_some() {
-                path.push(':');
+            match param {
+                PathParam::Capture(lit, _, _, _) => {
+                    path.push(':');
+                    path.push_str(&lit.value())
+                }
+                PathParam::WildCard(lit, _, _, _) => {
+                    path.push('*');
+                    path.push_str(&lit.value());
+                }
+                PathParam::Static(lit) => path.push_str(&lit.value()),
             }
-            path.push_str(&ident.value());
+            // if colon.is_some() {
+            //     path.push(':');
+            // }
+            // path.push_str(&ident.value());
         }
 
         path
@@ -66,33 +77,30 @@ impl CompiledRoute {
             })
             .collect::<HashMap<_, _>>();
 
-        let mut path_params = Vec::new();
-        for (slash, path_param) in route.path_params {
+        for (_slash, path_param) in &mut route.path_params {
             match path_param {
-                PathParam::Ident(lit, colon, ident) => {
-                    let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+                PathParam::Capture(_lit, _colon, ident, ty) => {
+                    let (new_ident, new_ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
                         syn::Error::new(
                             ident.span(),
                             format!("path parameter `{}` not found in function arguments", ident),
                         )
                     })?;
-                    path_params.push((slash, lit, Some((colon, ident, ty))));
+                    *ident = new_ident;
+                    *ty = new_ty;
                 }
-                PathParam::Lit(lit) => {
-                    path_params.push((slash, lit, None));
-                }
+                PathParam::WildCard(_lit, _star, ident, ty) => {
+                    let (new_ident, new_ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+                        syn::Error::new(
+                            ident.span(),
+                            format!("path parameter `{}` not found in function arguments", ident),
+                        )
+                    })?;
+                    *ident = new_ident;
+                    *ty = new_ty;
+                },
+                PathParam::Static(lit) => {}
             }
-            // if let Some(colon) = colon {
-            //     let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
-            //         syn::Error::new(
-            //             ident.span(),
-            //             format!("path parameter `{}` not found in function arguments", ident),
-            //         )
-            //     })?;
-            //     path_params.push((slash, ident, Some((colon, ty))))
-            // } else {
-            //     path_params.push((slash, ident, None))
-            // }
         }
 
         let mut query_params = Vec::new();
@@ -116,7 +124,7 @@ impl CompiledRoute {
         Ok(Self {
             route_lit: route.route_lit,
             method: route.method,
-            path_params,
+            path_params: route.path_params,
             query_params,
             state: route.state.unwrap_or_else(|| guess_state_type(sig)),
             oapi_options: route.oapi_options,
@@ -124,14 +132,14 @@ impl CompiledRoute {
     }
 
     pub fn path_extractor(&self) -> Option<TokenStream2> {
-        if !self.path_params.iter().any(|(_, _, colon)| colon.is_some()) {
+        if !self.path_params.iter().any(|(_, param)| param.captures()) {
             return None;
         }
 
         let path_iter = self
             .path_params
             .iter()
-            .filter_map(|(_slash, ident, ty)| ty.as_ref().map(|(_colon, ident, ty)| (ident, ty)));
+            .filter_map(|(_slash, path_param)| path_param.capture());
         let idents = path_iter.clone().map(|item| item.0);
         let types = path_iter.clone().map(|item| item.1);
         Some(quote! {
@@ -174,10 +182,13 @@ impl CompiledRoute {
 
     pub fn extracted_idents(&self) -> Vec<Ident> {
         let mut idents = Vec::new();
-        for (_slash, ident, colon) in &self.path_params {
-            if let Some((_colon, ident, _ty)) = colon {
+        for (_slash, path_param) in &self.path_params {
+            if let Some((ident, _ty)) = path_param.capture() {
                 idents.push(ident.clone());
             }
+            // if let Some((_colon, ident, _ty)) = colon {
+            //     idents.push(ident.clone());
+            // }
         }
         for (ident, _ty) in &self.query_params {
             idents.push(ident.clone());
@@ -196,8 +207,8 @@ impl CompiledRoute {
             .filter_map(|(i, item)| {
                 if let FnArg::Typed(pat_type) = item {
                     if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
-                        if self.path_params.iter().any(|(_slash, _path_lit, colon)| {
-                            if let Some((_colon, path_ident, _ty)) = colon {
+                        if self.path_params.iter().any(|(_slash, path_param)| {
+                            if let Some((path_ident, _ty)) = path_param.capture() {
                                 path_ident == &pat_ident.ident
                             } else {
                                 false

@@ -48,9 +48,7 @@ async fn four(id: u32) -> String {
 
 // Tests that hyphens are allowed in route names
 #[route(GET "/foo-bar")]
-async fn foo_bar() -> String {
-    String::from("Hello!")
-}
+async fn foo_bar() {}
 
 #[tokio::test]
 async fn test_normal() {
@@ -92,6 +90,29 @@ async fn test_normal() {
     let (path, method_router) = generic_handler_with_complex_options::<u32>();
     assert_eq!(path, "/hello/:id");
 }
+
+#[route(GET "/*")]
+async fn wildcard() {}
+
+#[route(GET "/*capture")]
+async fn wildcard_capture(capture: String) -> Json<String> {
+    Json(capture)
+}
+
+#[route(GET "/")]
+async fn root() {}
+
+#[tokio::test]
+async fn test_wildcard() {
+    let router: axum::Router = axum::Router::new().typed_route(wildcard_capture);
+
+    let server = TestServer::new(router).unwrap();
+
+    let response = server.get("/foo/bar").await;
+    response.assert_status_ok();
+    assert_eq!(response.json::<String>(), "foo/bar");
+}
+
 
 #[cfg(feature = "aide")]
 mod aide_support {
@@ -210,3 +231,4 @@ mod aide_support {
             .unwrap()
     }
 }
+

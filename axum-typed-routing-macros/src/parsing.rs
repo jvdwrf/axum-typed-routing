@@ -1,7 +1,10 @@
 use core::panic;
 
 use quote::ToTokens;
-use syn::{token::Brace, Attribute, Expr, ExprClosure, Lit, LitBool, LitInt};
+use syn::{
+    token::{Brace, Star},
+    Attribute, Expr, ExprClosure, Lit, LitBool, LitInt,
+};
 
 use super::*;
 
@@ -28,14 +31,10 @@ impl RouteParser {
         let mut path_params = Vec::new();
         #[allow(clippy::never_loop)]
         for path_param in path.split('/') {
-            if let Some(param) = PathParam::new(path_param, span) {
-                path_params.push((Slash(span), param));
-            } else {
-                return Err(syn::Error::new(
-                    span,
-                    "expected path parameter or base path",
-                ));
-            }
+            path_params.push((
+                Slash(span),
+                PathParam::new(path_param, span, Box::new(parse_quote!(()))),
+            ));
         }
 
         let mut query_params = Vec::new();
@@ -54,21 +53,51 @@ impl RouteParser {
 }
 
 pub enum PathParam {
-    Ident(LitStr, Colon, Ident),
-    Lit(LitStr),
+    WildCard(LitStr, Star, Ident, Box<Type>),
+    Capture(LitStr, Colon, Ident, Box<Type>),
+    Static(LitStr),
 }
 
 impl PathParam {
-    fn new(str: &str, span: Span) -> Option<Self> {
+    pub fn captures(&self) -> bool {
+        matches!(self, Self::Capture(..) | Self::WildCard(..))
+    }
+
+    pub fn lit(&self) -> &LitStr {
+        match self {
+            Self::Capture(lit, _, _, _) => lit,
+            Self::WildCard(lit, _, _, _) => lit,
+            Self::Static(lit) => lit,
+        }
+    }
+
+    pub fn capture(&self) -> Option<(&Ident, &Box<Type>)> {
+        match self {
+            Self::Capture(_, _, ident, ty) => Some((ident, ty)),
+            Self::WildCard(_, _, ident, ty) => Some((ident, ty)),
+            _ => None,
+        }
+    }
+
+    fn new(str: &str, span: Span, ty: Box<Type>) -> Self {
         if str.starts_with(':') {
             let str = str.strip_prefix(':').unwrap();
-            Some(Self::Ident(
+            Self::Capture(
                 LitStr::new(str, span),
                 Colon(span),
                 Ident::new(str, span),
-            ))
+                ty,
+            )
+        } else if str.starts_with('*') && str.len() > 1 {
+            let str = str.strip_prefix('*').unwrap();
+            Self::WildCard(
+                LitStr::new(str, span),
+                Star(span),
+                Ident::new(str, span),
+                ty,
+            )
         } else {
-            Some(Self::Lit(LitStr::new(str, span)))
+            Self::Static(LitStr::new(str, span))
         }
     }
 }
