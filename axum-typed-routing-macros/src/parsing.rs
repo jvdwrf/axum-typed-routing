@@ -1,39 +1,105 @@
+use core::panic;
+
 use quote::ToTokens;
 use syn::{token::Brace, Attribute, Expr, ExprClosure, Lit, LitBool, LitInt};
 
 use super::*;
 
-struct RouteLit {
-    path_params: Vec<(Slash, Option<Colon>, Ident)>,
+struct RouteParser {
+    path_params: Vec<(Slash, PathParam)>,
     query_params: Vec<Ident>,
 }
 
-impl Parse for RouteLit {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut path_params = Vec::new();
-        while let Ok(slash) = input.parse::<Token![/]>() {
-            let colon = input.parse::<Colon>().ok();
-            let ident = input.parse::<Ident>()?;
-            path_params.push((slash, colon, ident));
+impl RouteParser {
+    fn new(lit: LitStr) -> syn::Result<Self> {
+        let val = lit.value();
+        let span = lit.span();
+        let split_route = val.split('?').collect::<Vec<_>>();
+        if split_route.len() > 2 {
+            return Err(syn::Error::new(span, "expected at most one '?'"));
         }
-        let mut query_params = Vec::new();
-        if input.parse::<Token![?]>().is_ok() {
-            while let Ok(ident) = input.parse::<Ident>() {
-                query_params.push(ident);
-                if input.parse::<Token![&]>().is_err() {
-                    if !input.is_empty() {
-                        Err(input.error("expected &"))?;
-                    }
-                    break;
-                }
+        let path = split_route[0];
+        let query = match split_route.get(1) {
+            Some(query) => query,
+            None => "",
+        };
+
+        let mut path_params = Vec::new();
+        #[allow(clippy::never_loop)]
+        for path_param in path.split('/').skip(1) {
+            if let Some(param) = PathParam::new(path_param, span) {
+                path_params.push((Slash(span), param));
+            } else {
+                return Err(syn::Error::new(
+                    span,
+                    "expected path parameter or base path",
+                ));
             }
         }
-        Ok(RouteLit {
+
+        let mut query_params = Vec::new();
+
+        if split_route.len() == 2 {
+            for query_param in query.split('&') {
+                query_params.push(Ident::new(query_param, span));
+            }
+        }
+
+        Ok(Self {
             path_params,
             query_params,
         })
     }
 }
+
+pub enum PathParam {
+    Ident(LitStr, Colon, Ident),
+    Lit(LitStr),
+}
+
+impl PathParam {
+    fn new(str: &str, span: Span) -> Option<Self> {
+        if str.starts_with(':') {
+            let str = str.strip_prefix(':').unwrap();
+            Some(Self::Ident(
+                LitStr::new(str, span),
+                Colon(span),
+                Ident::new(str, span),
+            ))
+        } else {
+            Some(Self::Lit(LitStr::new(str, span)))
+        }
+    }
+}
+
+// impl Parse for RouteLit {
+//     fn parse(input: ParseStream) -> syn::Result<Self> {
+//         let mut path_params = Vec::new();
+//         while let Ok(slash) = input.parse::<Token![/]>() {
+//             if let Some(param) = PathParam::new(input.parse::<LitStr>()?) {
+//                 path_params.push((slash, param));
+//             } else {
+//                 return Err(input.error("expected path parameter or base path"));
+//             }
+//         }
+//         let mut query_params = Vec::new();
+//         if input.parse::<Token![?]>().is_ok() {
+//             while let Ok(ident) = input.parse::<Ident>() {
+//                 query_params.push(ident);
+//                 if input.parse::<Token![&]>().is_err() {
+//                     if !input.is_empty() {
+//                         Err(input.error("expected &"))?;
+//                     }
+//                     break;
+//                 }
+//             }
+//         }
+//         Ok(RouteLit {
+//             path_params,
+//             query_params,
+//         })
+//     }
+// }
 
 pub struct OapiOptions {
     pub summary: Option<(Ident, LitStr)>,
@@ -234,7 +300,7 @@ fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
 
 pub struct Route {
     pub method: Method,
-    pub path_params: Vec<(Slash, Option<Colon>, Ident)>,
+    pub path_params: Vec<(Slash, PathParam)>,
     pub query_params: Vec<Ident>,
     pub state: Option<Type>,
     pub route_lit: LitStr,
@@ -245,7 +311,7 @@ impl Parse for Route {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let method = input.parse::<Method>()?;
         let route_lit = input.parse::<LitStr>()?;
-        let route = route_lit.parse::<RouteLit>()?;
+        let route_parser = RouteParser::new(route_lit.clone())?;
         let state = match input.parse::<kw::with>() {
             Ok(_) => Some(input.parse::<Type>()?),
             Err(_) => None,
@@ -261,8 +327,8 @@ impl Parse for Route {
 
         Ok(Route {
             method,
-            path_params: route.path_params,
-            query_params: route.query_params,
+            path_params: route_parser.path_params,
+            query_params: route_parser.query_params,
             state,
             route_lit,
             oapi_options,

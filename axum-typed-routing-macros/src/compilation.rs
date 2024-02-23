@@ -3,12 +3,14 @@ use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
+use self::parsing::PathParam;
+
 use super::*;
 
 pub struct CompiledRoute {
     pub method: Method,
     #[allow(clippy::type_complexity)]
-    pub path_params: Vec<(Slash, Ident, Option<(Colon, Box<Type>)>)>,
+    pub path_params: Vec<(Slash, LitStr, Option<(Colon, Ident, Box<Type>)>)>,
     pub query_params: Vec<(Ident, Box<Type>)>,
     pub state: Type,
     pub route_lit: LitStr,
@@ -24,7 +26,7 @@ impl CompiledRoute {
             if colon.is_some() {
                 path.push(':');
             }
-            path.push_str(&ident.to_string());
+            path.push_str(&ident.value());
         }
 
         path
@@ -65,18 +67,32 @@ impl CompiledRoute {
             .collect::<HashMap<_, _>>();
 
         let mut path_params = Vec::new();
-        for (slash, colon, ident) in route.path_params {
-            if let Some(colon) = colon {
-                let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
-                    syn::Error::new(
-                        ident.span(),
-                        format!("path parameter `{}` not found in function arguments", ident),
-                    )
-                })?;
-                path_params.push((slash, ident, Some((colon, ty))))
-            } else {
-                path_params.push((slash, ident, None))
+        for (slash, path_param) in route.path_params {
+            match path_param {
+                PathParam::Ident(lit, colon, ident) => {
+                    let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+                        syn::Error::new(
+                            ident.span(),
+                            format!("path parameter `{}` not found in function arguments", ident),
+                        )
+                    })?;
+                    path_params.push((slash, lit, Some((colon, ident, ty))));
+                }
+                PathParam::Lit(lit) => {
+                    path_params.push((slash, lit, None));
+                }
             }
+            // if let Some(colon) = colon {
+            //     let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+            //         syn::Error::new(
+            //             ident.span(),
+            //             format!("path parameter `{}` not found in function arguments", ident),
+            //         )
+            //     })?;
+            //     path_params.push((slash, ident, Some((colon, ty))))
+            // } else {
+            //     path_params.push((slash, ident, None))
+            // }
         }
 
         let mut query_params = Vec::new();
@@ -115,7 +131,7 @@ impl CompiledRoute {
         let path_iter = self
             .path_params
             .iter()
-            .filter_map(|(_slash, ident, ty)| ty.as_ref().map(|(_colon, ty)| (ident, ty)));
+            .filter_map(|(_slash, ident, ty)| ty.as_ref().map(|(_colon, ident, ty)| (ident, ty)));
         let idents = path_iter.clone().map(|item| item.0);
         let types = path_iter.clone().map(|item| item.1);
         Some(quote! {
@@ -159,7 +175,7 @@ impl CompiledRoute {
     pub fn extracted_idents(&self) -> Vec<Ident> {
         let mut idents = Vec::new();
         for (_slash, ident, colon) in &self.path_params {
-            if let Some((_colon, _ty)) = colon {
+            if let Some((_colon, ident, _ty)) = colon {
                 idents.push(ident.clone());
             }
         }
@@ -180,8 +196,12 @@ impl CompiledRoute {
             .filter_map(|(i, item)| {
                 if let FnArg::Typed(pat_type) = item {
                     if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
-                        if self.path_params.iter().any(|(_slash, path_ident, colon)| {
-                            colon.is_some() && path_ident == &pat_ident.ident
+                        if self.path_params.iter().any(|(_slash, _path_lit, colon)| {
+                            if let Some((_colon, path_ident, _ty)) = colon {
+                                path_ident == &pat_ident.ident
+                            } else {
+                                false
+                            }
                         }) || self
                             .query_params
                             .iter()

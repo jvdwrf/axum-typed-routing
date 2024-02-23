@@ -46,6 +46,12 @@ async fn four(id: u32) -> String {
     // String::from("Hello 123!")
 }
 
+// Tests that hyphens are allowed in route names
+#[route(GET "foo-bar")]
+async fn foo_bar() -> String {
+    String::from("Hello!")
+}
+
 #[tokio::test]
 async fn test_normal() {
     let router: axum::Router = axum::Router::new()
