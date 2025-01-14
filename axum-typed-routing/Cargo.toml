@@ -30,4 +30,3 @@ schemars = "0.8"
 
 [features]
 default = []
-aide = ["dep:aide"]
