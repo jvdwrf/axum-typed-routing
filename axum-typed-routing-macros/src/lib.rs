@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token::{Colon, Comma, Slash},
+    token::{Comma, Slash},
     FnArg, GenericArgument, ItemFn, LitStr, Meta, PathArguments, Signature, Type,
 };
 #[macro_use]

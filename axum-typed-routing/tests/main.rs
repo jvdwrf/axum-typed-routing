@@ -88,7 +88,7 @@ async fn test_normal() {
     response.assert_text("Hello, 123 - 321 - John!");
 
     let (path, method_router) = generic_handler_with_complex_options::<u32>();
-    assert_eq!(path, "/hello/:id");
+    assert_eq!(path, "/hello/{id}");
 }
 
 #[route(GET "/*")]
