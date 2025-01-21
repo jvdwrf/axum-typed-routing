@@ -16,8 +16,8 @@ quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
-axum = { version = "0.7", features = [] }
-aide = { version = "0.13", features = ["axum"] }
+axum = { version = "0.8", features = [] }
+aide = { version = "0.14", features = ["axum", "axum-json", "axum-query"] }
 serde = { version = "1.0", features = ["derive"] }
 schemars = "0.8"
 

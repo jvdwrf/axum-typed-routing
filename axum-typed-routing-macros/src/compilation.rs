@@ -24,13 +24,16 @@ impl CompiledRoute {
         for (_slash, param) in &self.path_params {
             path.push('/');
             match param {
-                PathParam::Capture(lit, _, _, _) => {
-                    path.push(':');
-                    path.push_str(&lit.value())
+                PathParam::Capture(lit, _brace_1, _, _, _brace_2) => {
+                    path.push('{');
+                    path.push_str(&lit.value());
+                    path.push('}');
                 }
-                PathParam::WildCard(lit, _, _, _) => {
+                PathParam::WildCard(lit, _brace_1, _, _, _, _brace_2) => {
+                    path.push('{');
                     path.push('*');
                     path.push_str(&lit.value());
+                    path.push('}');
                 }
                 PathParam::Static(lit) => path.push_str(&lit.value()),
             }
@@ -79,7 +82,7 @@ impl CompiledRoute {
 
         for (_slash, path_param) in &mut route.path_params {
             match path_param {
-                PathParam::Capture(_lit, _colon, ident, ty) => {
+                PathParam::Capture(_lit, _, ident, ty, _) => {
                     let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
                         syn::Error::new(
                             ident.span(),
@@ -89,7 +92,7 @@ impl CompiledRoute {
                     *ident = new_ident;
                     *ty = new_ty;
                 }
-                PathParam::WildCard(_lit, _star, ident, ty) => {
+                PathParam::WildCard(_lit, _, _star, ident, ty, _) => {
                     let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
                         syn::Error::new(
                             ident.span(),
@@ -98,7 +101,7 @@ impl CompiledRoute {
                     })?;
                     *ident = new_ident;
                     *ty = new_ty;
-                },
+                }
                 PathParam::Static(_lit) => {}
             }
         }

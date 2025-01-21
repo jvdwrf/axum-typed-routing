@@ -40,7 +40,7 @@ impl RouteParser {
         let path_param_len = path_params.len();
         for (i, (_slash, path_param)) in path_params.iter().enumerate() {
             match path_param {
-                PathParam::WildCard(_, _, _, _) => {
+                PathParam::WildCard(_, _, _, _, _, _) => {
                     if i != path_param_len - 1 {
                         return Err(syn::Error::new(
                             span,
@@ -48,7 +48,7 @@ impl RouteParser {
                         ));
                     }
                 }
-                PathParam::Capture(_, _, _, _) => (),
+                PathParam::Capture(_, _, _, _, _) => (),
                 PathParam::Static(lit) => {
                     if lit.value() == "*" && i != path_param_len - 1 {
                         return Err(syn::Error::new(
@@ -76,8 +76,8 @@ impl RouteParser {
 }
 
 pub enum PathParam {
-    WildCard(LitStr, Star, Ident, Box<Type>),
-    Capture(LitStr, Colon, Ident, Box<Type>),
+    WildCard(LitStr, Brace, Star, Ident, Box<Type>, Brace),
+    Capture(LitStr, Brace, Ident, Box<Type>, Brace),
     Static(LitStr),
 }
 
@@ -96,8 +96,8 @@ impl PathParam {
 
     pub fn capture(&self) -> Option<(&Ident, &Type)> {
         match self {
-            Self::Capture(_, _, ident, ty) => Some((ident, ty)),
-            Self::WildCard(_, _, ident, ty) => Some((ident, ty)),
+            Self::Capture(_, _, ident, ty, _) => Some((ident, ty)),
+            Self::WildCard(_, _, _, ident, ty, _) => Some((ident, ty)),
             _ => None,
         }
     }
@@ -107,17 +107,20 @@ impl PathParam {
             let str = str.strip_prefix(':').unwrap();
             Self::Capture(
                 LitStr::new(str, span),
-                Colon(span),
+                Brace(span),
                 Ident::new(str, span),
                 ty,
+                Brace(span),
             )
         } else if str.starts_with('*') && str.len() > 1 {
             let str = str.strip_prefix('*').unwrap();
             Self::WildCard(
                 LitStr::new(str, span),
+                Brace(span),
                 Star(span),
                 Ident::new(str, span),
                 ty,
+                Brace(span),
             )
         } else {
             Self::Static(LitStr::new(str, span))
