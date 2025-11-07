@@ -18,13 +18,13 @@
 //! - `/item/1?amount=2`
 //! - `/item/1?offset=3`
 //! - `/item/500`
-//! 
+//!
 //! By marking the `amount` and `offset` parameters as `Option<T>`, they become optional.
 //!
 //! ## Example with `aide`
 //! When the `aide` feature is enabled, it's possible to automatically generate OpenAPI
 //! documentation for the routes. The [`api_route`] macro is used in place of the [`route`] macro.
-//! 
+//!
 //! Please read the [`aide`] documentation for more information on usage.
 //! ```
 #![doc = include_str!("../examples/aide.rs")]
