@@ -16,10 +16,10 @@ quote = "1"
 proc-macro2 = "1"
 
 [dev-dependencies]
-axum = { version = "0.8", features = [] }
-aide = { version = "0.15", features = ["axum", "axum-json", "axum-query"] }
-serde = { version = "1.0", features = ["derive"] }
-schemars = "0.9.0"
+axum.workspace = true
+aide.workspace = true
+serde.workspace = true
+schemars.workspace = true
 
 [lib]
 proc-macro = true

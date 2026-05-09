@@ -1,3 +1,9 @@
 [workspace]
 members = ["axum-typed-routing-macros", "axum-typed-routing"]
 resolver = "2"
+
+[workspace.dependencies]
+aide = { version = "0.15", features = ["axum", "axum-query"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+schemars = "0.9.0"
