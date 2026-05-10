@@ -33,7 +33,7 @@
 use axum::routing::MethodRouter;
 
 type TypedHandler<S = ()> = fn() -> (&'static str, MethodRouter<S>);
-pub use axum_typed_routing_macros::route;
+pub use axum_typed_routing_macros::{route, uri};
 
 /// A trait that allows typed routes, created with the [`route`] macro to
 /// be added to an axum router.
@@ -122,5 +122,32 @@ mod aide_support {
             let (path, method_router) = handler();
             self.api_route_with(path, method_router, transform)
         }
+    }
+}
+
+#[doc(hidden)]
+pub mod __private {
+    use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+    use std::fmt::Display;
+
+    const RESERVED: &AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    const PATH_WILDCARD: &AsciiSet = &RESERVED.remove(b'/');
+
+    /// Percent-encode a value for use in a URL query value or single path segment
+    pub fn encode_uri_param<T: Display>(v: T) -> String {
+        let s = v.to_string();
+        utf8_percent_encode(&s, RESERVED).to_string()
+    }
+
+    /// Percent-encode a value for use as a multi-segment path (preserves `/`)
+    ///
+    /// As the name implies, this is used for properly handling wildcard paths.
+    pub fn encode_uri_path_wildcard<T: Display>(v: T) -> String {
+        let s = v.to_string();
+        utf8_percent_encode(&s, PATH_WILDCARD).to_string()
     }
 }

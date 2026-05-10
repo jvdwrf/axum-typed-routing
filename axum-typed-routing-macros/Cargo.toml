@@ -20,6 +20,7 @@ axum.workspace = true
 aide.workspace = true
 serde.workspace = true
 schemars.workspace = true
+axum-typed-routing = { path = "../axum-typed-routing" }
 
 [lib]
 proc-macro = true

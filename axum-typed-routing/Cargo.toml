@@ -13,12 +13,11 @@ readme = "../README.md"
 [package.metadata.docs.rs]
 features = ["aide"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 axum.workspace = true
 aide = { workspace = true, optional = true }
 axum-typed-routing-macros = { version = "0.3.0", path = "../axum-typed-routing-macros" }
+percent-encoding = "2.3.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
