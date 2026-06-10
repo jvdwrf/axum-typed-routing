@@ -22,7 +22,7 @@ axum-typed-routing-macros = { version = "0.3.0", path = "../axum-typed-routing-m
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
-axum-test = { version = "18", features = [] }
+axum-test = { version = "20", features = [] }
 serde.workspace = true
 schemars.workspace = true
 
