@@ -367,6 +367,7 @@ pub enum Method {
     Get(Span),
     Post(Span),
     Put(Span),
+    Patch(Span),
     Delete(Span),
     Head(Span),
     Connect(Span),
@@ -381,13 +382,14 @@ impl Parse for Method {
             "GET" => Ok(Self::Get(ident.span())),
             "POST" => Ok(Self::Post(ident.span())),
             "PUT" => Ok(Self::Put(ident.span())),
+            "PATCH" => Ok(Self::Patch(ident.span())),
             "DELETE" => Ok(Self::Delete(ident.span())),
             "HEAD" => Ok(Self::Head(ident.span())),
             "CONNECT" => Ok(Self::Connect(ident.span())),
             "OPTIONS" => Ok(Self::Options(ident.span())),
             "TRACE" => Ok(Self::Trace(ident.span())),
             _ => Err(input
-                .error("expected one of (GET, POST, PUT, DELETE, HEAD, CONNECT, OPTIONS, TRACE)")),
+                .error("expected one of (GET, POST, PUT, PATCH, DELETE, HEAD, CONNECT, OPTIONS, TRACE)")),
         }
     }
 }
@@ -398,6 +400,7 @@ impl Method {
             Self::Get(span) => Ident::new("get", *span),
             Self::Post(span) => Ident::new("post", *span),
             Self::Put(span) => Ident::new("put", *span),
+            Self::Patch(span) => Ident::new("patch", *span),
             Self::Delete(span) => Ident::new("delete", *span),
             Self::Head(span) => Ident::new("head", *span),
             Self::Connect(span) => Ident::new("connect", *span),
