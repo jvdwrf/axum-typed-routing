@@ -1,5 +1,5 @@
 #![allow(unused)]
-use aide::{axum::ApiRouter, OperationInput};
+use aide::{OperationInput, axum::ApiRouter};
 use axum::extract::{Json, State};
 use axum_typed_routing::TypedApiRouter;
 use axum_typed_routing_macros::api_route;

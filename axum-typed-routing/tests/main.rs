@@ -4,9 +4,9 @@
 use std::net::TcpListener;
 
 use axum::{
+    Form, Json,
     extract::{Path, State},
     routing::get,
-    Form, Json,
 };
 use axum_test::TestServer;
 use axum_typed_routing::TypedRouter;
@@ -60,7 +60,7 @@ async fn test_normal() {
         .typed_route(three)
         .typed_route(four);
 
-    let server = TestServer::new(router).unwrap();
+    let server = TestServer::new(router);
 
     let response = server.post("/one").await;
     response.assert_status_ok();
@@ -106,7 +106,7 @@ async fn root() {}
 async fn test_wildcard() {
     let router: axum::Router = axum::Router::new().typed_route(wildcard_capture);
 
-    let server = TestServer::new(router).unwrap();
+    let server = TestServer::new(router);
 
     let response = server.get("/foo/bar").await;
     response.assert_status_ok();

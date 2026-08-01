@@ -1,6 +1,6 @@
 #![allow(unused)]
 use axum::extract::{Json, State};
-use axum_typed_routing::{route, TypedRouter};
+use axum_typed_routing::{TypedRouter, route};
 
 #[route(GET "/item/{id}?amount&offset")]
 async fn item_handler(

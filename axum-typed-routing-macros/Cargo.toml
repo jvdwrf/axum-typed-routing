@@ -1,6 +1,6 @@
 [package]
 name = "axum-typed-routing-macros"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["axum", "routing", "handler", "typed", "macro"]
@@ -11,7 +11,7 @@ repository = "https://github.com/jvdwrf/axum-typed-routing"
 readme = "../README.md"
 
 [dependencies]
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 
