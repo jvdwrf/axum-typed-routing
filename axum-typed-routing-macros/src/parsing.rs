@@ -363,6 +363,44 @@ impl Parse for Route {
     }
 }
 
+pub enum UriValue {
+    Skip,       // for `_`
+    Expr(Expr), // for everything else
+}
+
+pub struct Uri {
+    pub route_name: Ident,
+    pub params: Vec<(Ident, UriValue)>,
+}
+
+impl Parse for Uri {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let route_name = input.parse::<Ident>()?;
+
+        let content;
+        parenthesized!(content in input);
+
+        let mut params = Vec::new();
+        while !content.is_empty() {
+            // Parse syntax in the format "ident = expr".
+            // If we see a `_`, it means the user wants to set `None` for an `Option`.
+            // However, it's not valid `Expr` so we must handle it differently.
+            let param_name = content.parse::<Ident>()?;
+            content.parse::<Token![=]>()?;
+            let value = if content.peek(Token![_]) {
+                content.parse::<Token![_]>()?;
+                UriValue::Skip
+            } else {
+                UriValue::Expr(content.parse::<Expr>()?)
+            };
+            params.push((param_name, value));
+            content.parse::<Token![,]>().ok();
+        }
+
+        Ok(Self { route_name, params })
+    }
+}
+
 pub enum Method {
     Get(Span),
     Post(Span),

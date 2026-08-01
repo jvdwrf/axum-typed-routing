@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use compilation::CompiledRoute;
-use parsing::{Method, Route};
+use parsing::{Method, Route, Uri};
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
-use std::collections::HashMap;
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -147,14 +148,22 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
     let query_params_struct = route.query_params_struct(with_aide);
     let state_type = &route.state;
     let axum_path = route.to_axum_path_string();
+    let route_format = route.to_path_format_string();
     let http_method = route.method.to_axum_method_name();
     let remaining_numbered_pats = route.remaining_pattypes_numbered(&function.sig.inputs);
-    let extracted_idents = route.extracted_idents();
+    let (query_idents, query_types) = route.query_idents_and_types();
+    let (path_idents, path_types) = route.path_idents_and_types();
+    let path_and_query_idents = [path_idents, query_idents].concat();
+    let path_and_query_types = [path_types, query_types].concat();
+    let path_encode_calls = route.path_encode_calls();
+    let query_snippets = route.query_snippets();
+
     let remaining_numbered_idents = remaining_numbered_pats.iter().map(|pat_type| &pat_type.pat);
     let route_docs = route.to_doc_comments();
 
     // Get the variables we need for code generation
     let fn_name = &function.sig.ident;
+    let fn_name_uri_mod_name = format_ident!("{}_uri_internal", fn_name);
     let fn_output = &function.sig.output;
     let vis = &function.vis;
     let asyncness = &function.sig.asyncness;
@@ -234,10 +243,88 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
             ) #fn_output #where_clause {
                 #function
 
-                #fn_name #ty_generics(#(#extracted_idents,)* #(#remaining_numbered_idents,)* ).await
+                #fn_name #ty_generics(#(#path_and_query_idents,)* #(#remaining_numbered_idents,)* ).await
             }
 
             (#axum_path, #inner_fn_call)
         }
+
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        #vis mod #fn_name_uri_mod_name {
+            use super::*;
+
+            #[allow(non_camel_case_types)]
+            pub struct Args {
+                #(pub #path_and_query_idents: #path_and_query_types,)*
+            }
+
+            #[doc(hidden)]
+            #[allow(unused_assignments)]
+            pub fn uri(args: Args) -> String {
+                let Args { #(#path_and_query_idents,)* } = args;
+                let mut __atr_uri = format!(#route_format, #(#path_encode_calls,)*);
+                let mut __atr_sep = '?';
+                #(#query_snippets)*
+                __atr_uri
+            }
+        }
+    })
+}
+
+/// Generate a type-safe, encoded route URI
+///
+/// It handles dynamic route parameters, query parameters as well as optional query parameters.
+///
+/// # Examples
+/// ```
+/// use axum_typed_routing_macros::{route, uri};
+///
+/// // Simple case with route parameter
+/// #[route(GET "/dog/{name}")]
+/// async fn dog(name: String) -> String {
+///     format!("Hello {name}!")
+/// }
+/// let dog = uri!(dog(name = "Foo Bar".to_string()));
+/// // Notice that the space is safely encoded.
+/// assert_eq!(dog, "/dog/Foo%20Bar");
+///
+/// // Simple case with query parameter
+/// #[route(GET "/users?id")]
+/// async fn users(id: Option<u32>) -> String {
+///     format!("This is user {id:?}!")
+/// }
+/// let users = uri!(users(id = Some(5)));
+/// assert_eq!(users, "/users?id=5");
+///
+/// // For optional parameters, you can set `None` by passing `_` like so:
+/// let users = uri!(users(id = _));
+/// assert_eq!(users, "/users");
+/// ```
+#[proc_macro]
+pub fn uri(input: TokenStream) -> TokenStream {
+    match _uri(input) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => {
+            let err: TokenStream = err.to_compile_error().into();
+            err
+        }
+    }
+}
+
+fn _uri(input: TokenStream) -> syn::Result<TokenStream2> {
+    let input = syn::parse::<Uri>(input)?;
+    let fields = input.params.iter().map(|(name, v)| {
+        let v = match v {
+            parsing::UriValue::Skip => quote! { None },
+            parsing::UriValue::Expr(expr) => quote! { #expr },
+        };
+        quote! { #name: #v }
+    });
+
+    let fn_name_uri_mod_name = format_ident!("{}_uri_internal", input.route_name);
+
+    Ok(quote! {
+        #fn_name_uri_mod_name::uri(#fn_name_uri_mod_name::Args { #(#fields),* })
     })
 }

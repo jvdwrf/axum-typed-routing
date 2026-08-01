@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType};
+use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType, TypePath};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
@@ -37,13 +37,42 @@ impl CompiledRoute {
                 }
                 PathParam::Static(lit) => path.push_str(&lit.value()),
             }
-            // if colon.is_some() {
-            //     path.push(':');
-            // }
-            // path.push_str(&ident.value());
         }
 
         path
+    }
+
+    pub fn to_path_format_string(&self) -> String {
+        let mut uri = String::new();
+
+        for (_slash, param) in &self.path_params {
+            uri.push('/');
+            match param {
+                PathParam::Capture(_lit, _, _, _, _) => uri.push_str("{}"),
+                PathParam::WildCard(_lit, _, _, _, _, _) => uri.push_str("{}"),
+                PathParam::Static(lit) => uri.push_str(&lit.value()),
+            }
+        }
+
+        uri
+    }
+
+    pub fn path_encode_calls(&self) -> Vec<TokenStream2> {
+        let mut calls = Vec::new();
+
+        for (_slash, param) in &self.path_params {
+            match param {
+                PathParam::Capture(_, _, ident, _, _) => calls.push(quote! {
+                    ::axum_typed_routing::__private::encode_uri_param(&#ident)
+                }),
+                PathParam::WildCard(_, _, _, ident, _, _) => calls.push(quote! {
+                    ::axum_typed_routing::__private::encode_uri_path_wildcard(&#ident)
+                }),
+                PathParam::Static(_) => {}
+            }
+        }
+
+        calls
     }
 
     /// Removes the arguments in `route` from `args`, and merges them in the output.
@@ -183,17 +212,50 @@ impl CompiledRoute {
         }
     }
 
-    pub fn extracted_idents(&self) -> Vec<Ident> {
+    pub fn path_idents_and_types(&self) -> (Vec<Ident>, Vec<Type>) {
         let mut idents = Vec::new();
+        let mut types = Vec::new();
         for (_slash, path_param) in &self.path_params {
-            if let Some((ident, _ty)) = path_param.capture() {
+            if let Some((ident, ty)) = path_param.capture() {
                 idents.push(ident.clone());
+                types.push(ty.clone());
             }
         }
-        for (ident, _ty) in &self.query_params {
+        (idents, types)
+    }
+
+    pub fn query_idents_and_types(&self) -> (Vec<Ident>, Vec<Type>) {
+        let mut idents = Vec::new();
+        let mut types = Vec::new();
+        for (ident, ty) in &self.query_params {
             idents.push(ident.clone());
+            types.push(*ty.clone());
         }
-        idents
+        (idents, types)
+    }
+
+    pub fn query_snippets(&self) -> Vec<TokenStream2> {
+        let mut snippets = Vec::new();
+        for (query_ident, query_type) in &self.query_params {
+            let key_eq = format!("{}={{}}", query_ident);
+            let inner = quote! {
+                __atr_uri.push(__atr_sep);
+                __atr_sep = '&';
+                __atr_uri.push_str(&format!(#key_eq, ::axum_typed_routing::__private::encode_uri_param(&#query_ident)));
+            };
+            let snippet = if is_option(query_type) {
+                quote! {
+                    if let Some(#query_ident) = #query_ident {
+                        #inner
+                    }
+                }
+            } else {
+                inner
+            };
+            snippets.push(snippet);
+        }
+
+        snippets
     }
 
     /// The arguments not used in the route.
@@ -465,4 +527,9 @@ fn guess_state_type(sig: &syn::Signature) -> Type {
     }
 
     parse_quote! { () }
+}
+
+fn is_option(ty: &Type) -> bool {
+    matches!(ty, Type::Path(TypePath { path, .. })
+    if path.segments.last().is_some_and(|s| s.ident == "Option"))
 }

@@ -1,6 +1,6 @@
 #![allow(unused)]
 use axum::extract::{Json, State};
-use axum_typed_routing::{route, TypedRouter};
+use axum_typed_routing::{route, uri, TypedRouter};
 
 #[route(GET "/item/{id}?amount&offset")]
 async fn item_handler(
@@ -17,4 +17,8 @@ fn main() {
     let router: axum::Router = axum::Router::new()
         .typed_route(item_handler)
         .with_state("state".to_string());
+
+    // Type-safely construct a uri using the handy uri!() macro:
+    let uri = uri!(item_handler(id = 1, amount = Some(2), offset = _));
+    assert_eq!(uri, "/item/1?amount=2");
 }
