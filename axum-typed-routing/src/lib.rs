@@ -1,5 +1,3 @@
-#![doc = include_str!("../../README.md")]
-//!
 //! ## Basic usage
 //! The following example demonstrates the basic usage of the library.
 //! On top of any regular handler, you can add the [`route`] macro to create a typed route.
@@ -71,7 +69,7 @@ pub use aide_support::*;
 mod aide_support {
     use crate::{TypedHandler, TypedRouter};
     use aide::{
-        axum::{routing::ApiMethodRouter, ApiRouter},
+        axum::{ApiRouter, routing::ApiMethodRouter},
         transform::TransformPathItem,
     };
 
