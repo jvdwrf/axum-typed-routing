@@ -138,12 +138,13 @@ pub fn api_route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<TokenStream2> {
     // Parse the route and function
     let route = syn::parse::<Route>(attr)?;
-    let function = syn::parse::<ItemFn>(item)?;
+
+    let mut function = syn::parse::<ItemFn>(item)?;
 
     // Now we can compile the route
-    let route = CompiledRoute::from_route(route, &function, with_aide)?;
-    let (path_extractor, path_ty) = route.path_extractor();
-    let (query_extractor, query_ty) = route.query_extractor();
+    let route = CompiledRoute::from_route(route, &mut function, with_aide)?;
+    let (path_extractor, _path_ty) = route.path_extractor();
+    let (query_extractor, _query_ty) = route.query_extractor();
     let query_params_struct = route.query_params_struct(with_aide);
     let path_params_struct = route.path_params_struct(with_aide);
     let state_type = &route.state;
@@ -203,8 +204,8 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
                             #(.tag(#tags))*
                             #(.security_requirement_scopes::<Vec<&'static str>, _>(#schemes, vec![#(#scopes),*]))*
                             #(.response::<#response_code, #response_type>())*
-                            .input::<#path_ty>()
-                            .input::<#query_ty>()
+                            // .input::<#path_ty>()
+                            // .input::<#query_ty>()
                             ;
                         #transform
                         __op__

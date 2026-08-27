@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{LitBool, LitInt, Pat, PatType, spanned::Spanned};
+use syn::{Attribute, LitBool, LitInt, Pat, PatType, spanned::Spanned};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
@@ -10,8 +10,8 @@ use super::*;
 pub struct CompiledRoute {
     pub method: Method,
     #[allow(clippy::type_complexity)]
-    pub path_params: Vec<(Slash, PathParam)>,
-    pub query_params: Vec<(Ident, Box<Type>)>,
+    pub path_params: Vec<(Slash, PathParam, Vec<Attribute>)>,
+    pub query_params: Vec<(Ident, Box<Type>, Vec<Attribute>)>,
     pub state: Type,
     pub route_lit: LitStr,
     pub oapi_options: Option<OapiOptions>,
@@ -21,7 +21,7 @@ impl CompiledRoute {
     pub fn to_axum_path_string(&self) -> String {
         let mut path = String::new();
 
-        for (_slash, param) in &self.path_params {
+        for (_slash, param, _attr) in &self.path_params {
             path.push('/');
             match param {
                 PathParam::Capture(lit, _brace_1, _, _, _brace_2) => {
@@ -47,7 +47,11 @@ impl CompiledRoute {
     }
 
     /// Removes the arguments in `route` from `args`, and merges them in the output.
-    pub fn from_route(mut route: Route, function: &ItemFn, with_aide: bool) -> syn::Result<Self> {
+    pub fn from_route(
+        mut route: Route,
+        function: &mut ItemFn,
+        with_aide: bool,
+    ) -> syn::Result<Self> {
         if !with_aide && route.oapi_options.is_some() {
             return Err(syn::Error::new(
                 Span::call_site(),
@@ -66,49 +70,77 @@ impl CompiledRoute {
             });
         }
 
-        let sig = &function.sig;
-        let mut arg_map = sig
+        let mut arg_map = function
+            .sig
             .inputs
-            .iter()
+            .iter_mut()
             .filter_map(|item| match item {
                 syn::FnArg::Receiver(_) => None,
                 syn::FnArg::Typed(pat_type) => Some(pat_type),
             })
-            .filter_map(|pat_type| match &*pat_type.pat {
-                syn::Pat::Ident(ident) => Some((ident.ident.clone(), pat_type.ty.clone())),
-                _ => None,
+            .filter_map(|pat_type| {
+                let doc = pat_type
+                    .attrs
+                    .iter()
+                    .filter(|attr| attr.path().is_ident("doc"))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                pat_type.attrs.retain(|attr| !attr.path().is_ident("doc"));
+                match &*pat_type.pat {
+                    syn::Pat::Ident(ident) => {
+                        Some((ident.ident.clone(), (pat_type.ty.clone(), doc)))
+                    }
+                    _ => None,
+                }
             })
             .collect::<HashMap<_, _>>();
 
-        for (_slash, path_param) in &mut route.path_params {
-            match path_param {
+        let mut path_params = Vec::new();
+        for (slash, mut path_param) in route.path_params {
+            let doc: Vec<Attribute>;
+
+            match &mut path_param {
                 PathParam::Capture(_lit, _, ident, ty, _) => {
-                    let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
-                        syn::Error::new(
-                            ident.span(),
-                            format!("path parameter `{}` not found in function arguments", ident),
-                        )
-                    })?;
+                    let (new_ident, (new_ty, new_doc)) =
+                        arg_map.remove_entry(ident).ok_or_else(|| {
+                            syn::Error::new(
+                                ident.span(),
+                                format!(
+                                    "path parameter `{}` not found in function arguments",
+                                    ident
+                                ),
+                            )
+                        })?;
                     *ident = new_ident;
                     *ty = new_ty;
+                    doc = new_doc;
                 }
                 PathParam::WildCard(_lit, _, _star, ident, ty, _) => {
-                    let (new_ident, new_ty) = arg_map.remove_entry(ident).ok_or_else(|| {
-                        syn::Error::new(
-                            ident.span(),
-                            format!("path parameter `{}` not found in function arguments", ident),
-                        )
-                    })?;
+                    let (new_ident, (new_ty, new_doc)) =
+                        arg_map.remove_entry(ident).ok_or_else(|| {
+                            syn::Error::new(
+                                ident.span(),
+                                format!(
+                                    "path parameter `{}` not found in function arguments",
+                                    ident
+                                ),
+                            )
+                        })?;
                     *ident = new_ident;
                     *ty = new_ty;
+                    doc = new_doc;
                 }
-                PathParam::Static(_lit) => {}
+                PathParam::Static(_lit) => {
+                    doc = Vec::new();
+                }
             }
+
+            path_params.push((slash, path_param, doc));
         }
 
         let mut query_params = Vec::new();
         for ident in route.query_params {
-            let (ident, ty) = arg_map.remove_entry(&ident).ok_or_else(|| {
+            let (ident, (ty, doc)) = arg_map.remove_entry(&ident).ok_or_else(|| {
                 syn::Error::new(
                     ident.span(),
                     format!(
@@ -117,7 +149,7 @@ impl CompiledRoute {
                     ),
                 )
             })?;
-            query_params.push((ident, ty));
+            query_params.push((ident, ty, doc));
         }
 
         if let Some(options) = route.oapi_options.as_mut() {
@@ -127,22 +159,28 @@ impl CompiledRoute {
         Ok(Self {
             route_lit: route.route_lit,
             method: route.method,
-            path_params: route.path_params,
+            path_params,
             query_params,
-            state: route.state.unwrap_or_else(|| guess_state_type(sig)),
+            state: route
+                .state
+                .unwrap_or_else(|| guess_state_type(&function.sig)),
             oapi_options: route.oapi_options,
         })
     }
 
     pub fn path_extractor(&self) -> (Option<TokenStream2>, TokenStream2) {
-        if !self.path_params.iter().any(|(_, param)| param.captures()) {
+        if !self
+            .path_params
+            .iter()
+            .any(|(_, param, _)| param.captures())
+        {
             return (None, quote! { ::axum::extract::Path<()> });
         }
 
         let path_iter = self
             .path_params
             .iter()
-            .filter_map(|(_slash, path_param)| path_param.capture());
+            .filter_map(|(_slash, path_param, _)| path_param.capture());
         let idents = path_iter.clone().map(|item| item.0);
         (
             Some(quote! {
@@ -176,6 +214,7 @@ impl CompiledRoute {
             false => {
                 let idents = self.query_params.iter().map(|item| &item.0);
                 let types = self.query_params.iter().map(|item| &item.1);
+                let docs = self.query_params.iter().map(|item| &item.2);
                 let derive = match with_aide {
                     true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
                     false => quote! { #[derive(::serde::Deserialize)] },
@@ -183,7 +222,7 @@ impl CompiledRoute {
                 Some(quote! {
                     #derive
                     struct __QueryParams__ {
-                        #(#idents: #types,)*
+                        #(#(#docs)* #idents: #types,)*
                     }
                 })
             }
@@ -191,14 +230,21 @@ impl CompiledRoute {
     }
 
     pub fn path_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
-        match self.path_params.iter().any(|(_, param)| param.captures()) {
+        match self
+            .path_params
+            .iter()
+            .any(|(_, param, _)| param.captures())
+        {
             true => {
                 let path_iter = self
                     .path_params
                     .iter()
-                    .filter_map(|(_slash, path_param)| path_param.capture());
-                let idents = path_iter.clone().map(|item| item.0);
-                let types = path_iter.clone().map(|item| item.1);
+                    .filter_map(|(_slash, path_param, docs)| {
+                        path_param.capture().map(|p| (p, docs))
+                    });
+                let idents = path_iter.clone().map(|item| item.0.0);
+                let types = path_iter.clone().map(|item| item.0.1);
+                let docs = path_iter.clone().map(|item| item.1);
                 let derive = match with_aide {
                     true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
                     false => quote! { #[derive(::serde::Deserialize)] },
@@ -206,7 +252,7 @@ impl CompiledRoute {
                 Some(quote! {
                     #derive
                     struct __PathParams__ {
-                        #(#idents: #types,)*
+                        #(#(#docs)* #idents: #types,)*
                     }
                 })
             }
@@ -216,12 +262,12 @@ impl CompiledRoute {
 
     pub fn extracted_idents(&self) -> Vec<Ident> {
         let mut idents = Vec::new();
-        for (_slash, path_param) in &self.path_params {
+        for (_slash, path_param, _) in &self.path_params {
             if let Some((ident, _ty)) = path_param.capture() {
                 idents.push(ident.clone());
             }
         }
-        for (ident, _ty) in &self.query_params {
+        for (ident, _ty, _) in &self.query_params {
             idents.push(ident.clone());
         }
         idents
@@ -238,7 +284,7 @@ impl CompiledRoute {
             .filter_map(|(i, item)| {
                 if let FnArg::Typed(pat_type) = item {
                     if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
-                        if self.path_params.iter().any(|(_slash, path_param)| {
+                        if self.path_params.iter().any(|(_slash, path_param, _)| {
                             if let Some((path_ident, _ty)) = path_param.capture() {
                                 path_ident == &pat_ident.ident
                             } else {
@@ -247,7 +293,7 @@ impl CompiledRoute {
                         }) || self
                             .query_params
                             .iter()
-                            .any(|(query_ident, _)| query_ident == &pat_ident.ident)
+                            .any(|(query_ident, _, _)| query_ident == &pat_ident.ident)
                         {
                             return None;
                         }

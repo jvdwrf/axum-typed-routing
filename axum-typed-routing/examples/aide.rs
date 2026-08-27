@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
     hidden: false,
 })]
 async fn item_handler(
+    /// The id of the item to get
     id: u32,
+    /// The amount of items to get
     amount: Option<u32>,
+    /// The offset of the items to get
     offset: Option<u32>,
     State(state): State<String>,
     json: String,
