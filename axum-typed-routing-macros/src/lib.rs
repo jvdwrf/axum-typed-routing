@@ -145,6 +145,7 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
     let (path_extractor, path_ty) = route.path_extractor();
     let (query_extractor, query_ty) = route.query_extractor();
     let query_params_struct = route.query_params_struct(with_aide);
+    let path_params_struct = route.path_params_struct(with_aide);
     let state_type = &route.state;
     let axum_path = route.to_axum_path_string();
     let http_method = route.method.to_axum_method_name();
@@ -227,6 +228,7 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         #vis fn #fn_name #impl_generics() -> (&'static str, #method_router_ty<#state_type>) #where_clause {
 
             #query_params_struct
+            #path_params_struct
 
             #aide_ident_docs
             #asyncness fn __inner__function__ #impl_generics(

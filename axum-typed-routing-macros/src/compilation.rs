@@ -144,15 +144,13 @@ impl CompiledRoute {
             .iter()
             .filter_map(|(_slash, path_param)| path_param.capture());
         let idents = path_iter.clone().map(|item| item.0);
-        let types = path_iter.clone().map(|item| item.1);
-        let types2 = types.clone();
         (
             Some(quote! {
-                ::axum::extract::Path((#(#idents,)*)): ::axum::extract::Path<(#(#types,)*)>,
+                ::axum::extract::Path(__PathParams__ {
+                    #(#idents,)*
+                }): ::axum::extract::Path<__PathParams__>,
             }),
-            quote! {
-                ::axum::extract::Path<(#(#types2,)*)>
-            },
+            quote! { ::axum::extract::Path<__PathParams__> },
         )
     }
 
@@ -189,6 +187,30 @@ impl CompiledRoute {
                     }
                 })
             }
+        }
+    }
+
+    pub fn path_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
+        match self.path_params.iter().any(|(_, param)| param.captures()) {
+            true => {
+                let path_iter = self
+                    .path_params
+                    .iter()
+                    .filter_map(|(_slash, path_param)| path_param.capture());
+                let idents = path_iter.clone().map(|item| item.0);
+                let types = path_iter.clone().map(|item| item.1);
+                let derive = match with_aide {
+                    true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
+                    false => quote! { #[derive(::serde::Deserialize)] },
+                };
+                Some(quote! {
+                    #derive
+                    struct __PathParams__ {
+                        #(#idents: #types,)*
+                    }
+                })
+            }
+            false => None,
         }
     }
 
