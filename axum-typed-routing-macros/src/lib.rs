@@ -4,10 +4,10 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use std::collections::HashMap;
 use syn::{
+    FnArg, GenericArgument, ItemFn, LitStr, Meta, PathArguments, Signature, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     token::{Comma, Slash},
-    FnArg, GenericArgument, ItemFn, LitStr, Meta, PathArguments, Signature, Type,
 };
 #[macro_use]
 extern crate quote;
@@ -142,8 +142,8 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
 
     // Now we can compile the route
     let route = CompiledRoute::from_route(route, &function, with_aide)?;
-    let path_extractor = route.path_extractor();
-    let query_extractor = route.query_extractor();
+    let (path_extractor, path_ty) = route.path_extractor();
+    let (query_extractor, query_ty) = route.query_extractor();
     let query_params_struct = route.query_params_struct(with_aide);
     let state_type = &route.state;
     let axum_path = route.to_axum_path_string();
@@ -202,6 +202,8 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
                             #(.tag(#tags))*
                             #(.security_requirement_scopes::<Vec<&'static str>, _>(#schemes, vec![#(#scopes),*]))*
                             #(.response::<#response_code, #response_type>())*
+                            .input::<#path_ty>()
+                            .input::<#query_ty>()
                             ;
                         #transform
                         __op__

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
     description: "Get an item by id",
     id: "get-item",
     tags: ["items"],
-    hidden: false
+    hidden: false,
 })]
 async fn item_handler(
     id: u32,

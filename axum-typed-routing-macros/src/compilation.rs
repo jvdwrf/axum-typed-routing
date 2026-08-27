@@ -1,5 +1,5 @@
 use quote::ToTokens;
-use syn::{spanned::Spanned, LitBool, LitInt, Pat, PatType};
+use syn::{LitBool, LitInt, Pat, PatType, spanned::Spanned};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
@@ -134,9 +134,9 @@ impl CompiledRoute {
         })
     }
 
-    pub fn path_extractor(&self) -> Option<TokenStream2> {
+    pub fn path_extractor(&self) -> (Option<TokenStream2>, TokenStream2) {
         if !self.path_params.iter().any(|(_, param)| param.captures()) {
-            return None;
+            return (None, quote! { ::axum::extract::Path<()> });
         }
 
         let path_iter = self
@@ -145,22 +145,31 @@ impl CompiledRoute {
             .filter_map(|(_slash, path_param)| path_param.capture());
         let idents = path_iter.clone().map(|item| item.0);
         let types = path_iter.clone().map(|item| item.1);
-        Some(quote! {
-            ::axum::extract::Path((#(#idents,)*)): ::axum::extract::Path<(#(#types,)*)>,
-        })
+        let types2 = types.clone();
+        (
+            Some(quote! {
+                ::axum::extract::Path((#(#idents,)*)): ::axum::extract::Path<(#(#types,)*)>,
+            }),
+            quote! {
+                ::axum::extract::Path<(#(#types2,)*)>
+            },
+        )
     }
 
-    pub fn query_extractor(&self) -> Option<TokenStream2> {
+    pub fn query_extractor(&self) -> (Option<TokenStream2>, TokenStream2) {
         if self.query_params.is_empty() {
-            return None;
+            return (None, quote! { ::axum::extract::Query<()> });
         }
 
         let idents = self.query_params.iter().map(|item| &item.0);
-        Some(quote! {
-            ::axum::extract::Query(__QueryParams__ {
-                #(#idents,)*
-            }): ::axum::extract::Query<__QueryParams__>,
-        })
+        (
+            Some(quote! {
+                ::axum::extract::Query(__QueryParams__ {
+                    #(#idents,)*
+                }): ::axum::extract::Query<__QueryParams__>,
+            }),
+            quote! { ::axum::extract::Query<__QueryParams__> },
+        )
     }
 
     pub fn query_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
@@ -316,7 +325,7 @@ impl CompiledRoute {
     pub fn get_oapi_tags(&self) -> Vec<LitStr> {
         if let Some(oapi_options) = &self.oapi_options {
             if let Some(tags) = &oapi_options.tags {
-                return tags.1 .0.clone();
+                return tags.1.0.clone();
             }
         }
         Vec::new()
