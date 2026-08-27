@@ -1,3 +1,4 @@
+use convert_case::{Case, Casing as _};
 use quote::ToTokens;
 use syn::{Attribute, LitBool, LitInt, Pat, PatType, spanned::Spanned};
 
@@ -15,6 +16,7 @@ pub struct CompiledRoute {
     pub state: Type,
     pub route_lit: LitStr,
     pub oapi_options: Option<OapiOptions>,
+    pub fn_name: Ident,
 }
 
 impl CompiledRoute {
@@ -165,7 +167,20 @@ impl CompiledRoute {
                 .state
                 .unwrap_or_else(|| guess_state_type(&function.sig)),
             oapi_options: route.oapi_options,
+            fn_name: function.sig.ident.clone(),
         })
+    }
+
+    fn path_param_struct_name(&self) -> Ident {
+        let fn_name_pascal = self.fn_name.to_string().to_case(Case::Pascal);
+
+        format_ident!("{}Path", fn_name_pascal, span = self.fn_name.span())
+    }
+
+    fn query_param_struct_name(&self) -> Ident {
+        let fn_name_pascal = self.fn_name.to_string().to_case(Case::Pascal);
+
+        format_ident!("{}Query", fn_name_pascal, span = self.fn_name.span())
     }
 
     pub fn path_extractor(&self) -> (Option<TokenStream2>, TokenStream2) {
@@ -182,13 +197,14 @@ impl CompiledRoute {
             .iter()
             .filter_map(|(_slash, path_param, _)| path_param.capture());
         let idents = path_iter.clone().map(|item| item.0);
+        let name = self.path_param_struct_name();
         (
             Some(quote! {
-                ::axum::extract::Path(__PathParams__ {
+                ::axum::extract::Path(#name {
                     #(#idents,)*
-                }): ::axum::extract::Path<__PathParams__>,
+                }): ::axum::extract::Path<#name>,
             }),
-            quote! { ::axum::extract::Path<__PathParams__> },
+            quote! { ::axum::extract::Path<#name> },
         )
     }
 
@@ -198,13 +214,14 @@ impl CompiledRoute {
         }
 
         let idents = self.query_params.iter().map(|item| &item.0);
+        let name = self.query_param_struct_name();
         (
             Some(quote! {
-                ::axum::extract::Query(__QueryParams__ {
+                ::axum::extract::Query(#name {
                     #(#idents,)*
-                }): ::axum::extract::Query<__QueryParams__>,
+                }): ::axum::extract::Query<#name>,
             }),
-            quote! { ::axum::extract::Query<__QueryParams__> },
+            quote! { ::axum::extract::Query<#name> },
         )
     }
 
@@ -219,9 +236,10 @@ impl CompiledRoute {
                     true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
                     false => quote! { #[derive(::serde::Deserialize)] },
                 };
+                let name = self.query_param_struct_name();
                 Some(quote! {
                     #derive
-                    struct __QueryParams__ {
+                    struct #name {
                         #(#(#docs)* #idents: #types,)*
                     }
                 })
@@ -249,9 +267,10 @@ impl CompiledRoute {
                     true => quote! { #[derive(::serde::Deserialize, ::schemars::JsonSchema)] },
                     false => quote! { #[derive(::serde::Deserialize)] },
                 };
+                let name = self.path_param_struct_name();
                 Some(quote! {
                     #derive
-                    struct __PathParams__ {
+                    struct #name {
                         #(#(#docs)* #idents: #types,)*
                     }
                 })

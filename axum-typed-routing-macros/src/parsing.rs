@@ -2,8 +2,8 @@ use core::panic;
 
 use quote::ToTokens;
 use syn::{
-    token::{Brace, Star},
     Attribute, Expr, ExprClosure, Lit, LitBool, LitInt,
+    token::{Brace, Star},
 };
 
 use super::*;
@@ -272,7 +272,7 @@ impl Parse for OapiOptions {
                     return Err(syn::Error::new(
                         ident.span(),
                         "unexpected field, expected one of (summary, description, id, hidden, tags, security, responses, transform)",
-                    ))
+                    ));
                 }
             }
             let _ = input.parse::<Token![,]>().ok();
@@ -388,8 +388,9 @@ impl Parse for Method {
             "CONNECT" => Ok(Self::Connect(ident.span())),
             "OPTIONS" => Ok(Self::Options(ident.span())),
             "TRACE" => Ok(Self::Trace(ident.span())),
-            _ => Err(input
-                .error("expected one of (GET, POST, PUT, PATCH, DELETE, HEAD, CONNECT, OPTIONS, TRACE)")),
+            _ => Err(input.error(
+                "expected one of (GET, POST, PUT, PATCH, DELETE, HEAD, CONNECT, OPTIONS, TRACE)",
+            )),
         }
     }
 }
