@@ -6,7 +6,7 @@ use axum_typed_routing_macros::api_route;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[api_route(GET "/item/{id}?amount&offset" {
+#[api_route(debug GET "/item/{id}?amount&offset" {
     summary: "Get an item",
     description: "Get an item by id",
     id: "get-item",

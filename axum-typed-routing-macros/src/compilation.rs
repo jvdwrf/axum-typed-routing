@@ -1,6 +1,6 @@
 use convert_case::{Case, Casing as _};
 use quote::ToTokens;
-use syn::{Attribute, LitBool, LitInt, Pat, PatType, spanned::Spanned};
+use syn::{Attribute, LitBool, LitInt, Pat, PatType, ReturnType, spanned::Spanned};
 
 use crate::parsing::{OapiOptions, Responses, Security, StrArray};
 
@@ -17,6 +17,7 @@ pub struct CompiledRoute {
     pub route_lit: LitStr,
     pub oapi_options: Option<OapiOptions>,
     pub fn_name: Ident,
+    pub debug: bool,
 }
 
 impl CompiledRoute {
@@ -168,6 +169,7 @@ impl CompiledRoute {
                 .unwrap_or_else(|| guess_state_type(&function.sig)),
             oapi_options: route.oapi_options,
             fn_name: function.sig.ident.clone(),
+            debug: route.debug,
         })
     }
 
@@ -223,6 +225,48 @@ impl CompiledRoute {
             }),
             quote! { ::axum::extract::Query<#name> },
         )
+    }
+
+    pub fn axum_debug_handler(&self) -> Option<TokenStream2> {
+        if self.debug {
+            Some(quote! {
+                #[::axum::debug_handler]
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn debug_operation_input_output(&self, function: &ItemFn) -> TokenStream2 {
+        if !self.debug {
+            return quote! {};
+        }
+
+        let input_types = self
+            .remaining_args(&function.sig.inputs)
+            .filter_map(|arg| match arg {
+                FnArg::Typed(pat_type) => Some(&pat_type.ty),
+                FnArg::Receiver(_) => None,
+            });
+
+        let output_type = match &function.sig.output {
+            ReturnType::Default => quote! { () },
+            ReturnType::Type(_, ty) => quote! { #ty },
+        };
+
+        quote! {
+            #[allow(dead_code)]
+            const _: () = {
+                const fn __debug_operation_input__<T: ::aide::OperationInput>() {}
+                const fn __debug_operation_output__<T: ::aide::OperationOutput>() {}
+
+                #(
+                    __debug_operation_input__::<#input_types>();
+                )*
+
+                __debug_operation_output__::<#output_type>();
+            };
+        }
     }
 
     pub fn query_params_struct(&self, with_aide: bool) -> Option<TokenStream2> {
@@ -292,32 +336,42 @@ impl CompiledRoute {
         idents
     }
 
+    /// Returns the function arguments that are not consumed by the route's
+    /// path/query parameters.
+    pub fn remaining_args<'a>(
+        &self,
+        args: impl IntoIterator<Item = &'a FnArg>,
+    ) -> impl Iterator<Item = &'a FnArg> {
+        args.into_iter().filter(|item| {
+            let FnArg::Typed(pat_type) = item else {
+                return true;
+            };
+
+            let Pat::Ident(pat_ident) = &*pat_type.pat else {
+                return true;
+            };
+
+            !self.path_params.iter().any(|(_, path_param, _)| {
+                path_param
+                    .capture()
+                    .is_some_and(|(path_ident, _)| path_ident == &pat_ident.ident)
+            }) && !self
+                .query_params
+                .iter()
+                .any(|(query_ident, _, _)| query_ident == &pat_ident.ident)
+        })
+    }
+
     /// The arguments not used in the route.
     /// Map the identifier to `___arg___{i}: Type`.
     pub fn remaining_pattypes_numbered(
         &self,
         args: &Punctuated<FnArg, Comma>,
     ) -> Punctuated<PatType, Comma> {
-        args.iter()
+        self.remaining_args(args)
             .enumerate()
             .filter_map(|(i, item)| {
                 if let FnArg::Typed(pat_type) = item {
-                    if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
-                        if self.path_params.iter().any(|(_slash, path_param, _)| {
-                            if let Some((path_ident, _ty)) = path_param.capture() {
-                                path_ident == &pat_ident.ident
-                            } else {
-                                false
-                            }
-                        }) || self
-                            .query_params
-                            .iter()
-                            .any(|(query_ident, _, _)| query_ident == &pat_ident.ident)
-                        {
-                            return None;
-                        }
-                    }
-
                     let mut new_pat_type = pat_type.clone();
                     let ident = format_ident!("___arg___{}", i);
                     new_pat_type.pat = Box::new(parse_quote!(#ident));

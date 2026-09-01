@@ -18,14 +18,17 @@ impl RouteParser {
         let val = lit.value();
         let span = lit.span();
         let split_route = val.split('?').collect::<Vec<_>>();
+
         if split_route.len() > 2 {
             return Err(syn::Error::new(span, "expected at most one '?'"));
         }
 
         let path = split_route[0];
+
         if !path.starts_with('/') {
             return Err(syn::Error::new(span, "expected path to start with '/'"));
         }
+
         let path = path.strip_prefix('/').unwrap();
 
         let mut path_params = Vec::new();
@@ -38,6 +41,7 @@ impl RouteParser {
         }
 
         let path_param_len = path_params.len();
+
         for (i, (_slash, path_param)) in path_params.iter().enumerate() {
             match path_param {
                 PathParam::WildCard(_, _, _, _, _, _) => {
@@ -61,8 +65,10 @@ impl RouteParser {
         }
 
         let mut query_params = Vec::new();
+
         if split_route.len() == 2 {
             let query = split_route[1];
+
             for query_param in query.split('&') {
                 query_params.push(Ident::new(query_param, span));
             }
@@ -103,6 +109,7 @@ impl PathParam {
                 .ok_or_else(|| {
                     syn::Error::new(span, "expected path param to be wrapped in curly braces")
                 })?;
+
             Self::Capture(
                 LitStr::new(str, span),
                 Brace(span),
@@ -112,6 +119,7 @@ impl PathParam {
             )
         } else if str.starts_with('*') && str.len() > 1 {
             let str = str.strip_prefix('*').unwrap();
+
             Self::WildCard(
                 LitStr::new(str, span),
                 Brace(span),
@@ -140,17 +148,20 @@ pub struct OapiOptions {
 }
 
 pub struct Security(pub Vec<(LitStr, StrArray)>);
+
 impl Parse for Security {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         braced!(inner in input);
 
         let mut arr = Vec::new();
+
         while !inner.is_empty() {
             let scheme = inner.parse::<LitStr>()?;
             let _ = inner.parse::<Token![:]>()?;
             let scopes = inner.parse::<StrArray>()?;
             let _ = inner.parse::<Token![,]>().ok();
+
             arr.push((scheme, scopes));
         }
 
@@ -161,32 +172,40 @@ impl Parse for Security {
 impl ToString for Security {
     fn to_string(&self) -> String {
         let mut s = String::new();
+
         s.push('{');
+
         for (i, (scheme, scopes)) in self.0.iter().enumerate() {
             if i > 0 {
                 s.push_str(", ");
             }
+
             s.push_str(&scheme.value());
             s.push_str(": ");
             s.push_str(&scopes.to_string());
         }
+
         s.push('}');
+
         s
     }
 }
 
 pub struct Responses(pub Vec<(LitInt, Type)>);
+
 impl Parse for Responses {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         braced!(inner in input);
 
         let mut arr = Vec::new();
+
         while !inner.is_empty() {
             let status = inner.parse::<LitInt>()?;
             let _ = inner.parse::<Token![:]>()?;
             let ty = inner.parse::<Type>()?;
             let _ = inner.parse::<Token![,]>().ok();
+
             arr.push((status, ty));
         }
 
@@ -197,31 +216,40 @@ impl Parse for Responses {
 impl ToString for Responses {
     fn to_string(&self) -> String {
         let mut s = String::new();
+
         s.push('{');
+
         for (i, (status, ty)) in self.0.iter().enumerate() {
             if i > 0 {
                 s.push_str(", ");
             }
+
             s.push_str(&status.to_string());
             s.push_str(": ");
             s.push_str(&ty.to_token_stream().to_string());
         }
+
         s.push('}');
+
         s
     }
 }
 
 #[derive(Clone)]
 pub struct StrArray(pub Vec<LitStr>);
+
 impl Parse for StrArray {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let inner;
         bracketed!(inner in input);
+
         let mut arr = Vec::new();
+
         while !inner.is_empty() {
             arr.push(inner.parse::<LitStr>()?);
             inner.parse::<Token![,]>().ok();
         }
+
         Ok(Self(arr))
     }
 }
@@ -229,16 +257,21 @@ impl Parse for StrArray {
 impl ToString for StrArray {
     fn to_string(&self) -> String {
         let mut s = String::new();
+
         s.push('[');
+
         for (i, lit) in self.0.iter().enumerate() {
             if i > 0 {
                 s.push_str(", ");
             }
+
             s.push('"');
             s.push_str(&lit.value());
             s.push('"');
         }
+
         s.push(']');
+
         s
     }
 }
@@ -259,6 +292,7 @@ impl Parse for OapiOptions {
         while !input.is_empty() {
             let ident = input.parse::<Ident>()?;
             let _ = input.parse::<Token![:]>()?;
+
             match ident.to_string().as_str() {
                 "summary" => this.summary = Some((ident, input.parse()?)),
                 "description" => this.description = Some((ident, input.parse()?)),
@@ -275,6 +309,7 @@ impl Parse for OapiOptions {
                     ));
                 }
             }
+
             let _ = input.parse::<Token![,]>().ok();
         }
 
@@ -293,15 +328,18 @@ impl OapiOptions {
                     acc.push_str(&item);
                     acc
                 })
-                .map(|item| (parse_quote!(description), parse_quote!(#item)))
+                .map(|item| (parse_quote!(description), parse_quote!(#item)));
         }
+
         if self.summary.is_none() {
             self.summary = doc_iter(&function.attrs)
                 .next()
-                .map(|item| (parse_quote!(summary), item.clone()))
+                .map(|item| (parse_quote!(summary), item.clone()));
         }
+
         if self.id.is_none() {
             let id = &function.sig.ident;
+
             self.id = Some((parse_quote!(id), LitStr::new(&id.to_string(), id.span())));
         }
     }
@@ -315,17 +353,21 @@ fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
             let Meta::NameValue(meta) = &attr.meta else {
                 panic!("doc attribute is not a name-value attribute");
             };
+
             let Expr::Lit(lit) = &meta.value else {
                 panic!("doc attribute is not a string literal");
             };
+
             let Lit::Str(lit_str) = &lit.lit else {
                 panic!("doc attribute is not a string literal");
             };
+
             lit_str
         })
 }
 
 pub struct Route {
+    pub debug: bool,
     pub method: Method,
     pub path_params: Vec<(Slash, PathParam)>,
     pub query_params: Vec<Ident>,
@@ -336,13 +378,18 @@ pub struct Route {
 
 impl Parse for Route {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        // `debug` is an optional keyword and must appear before anything else.
+        let debug = input.parse::<kw::debug>().is_ok();
+
         let method = input.parse::<Method>()?;
         let route_lit = input.parse::<LitStr>()?;
         let route_parser = RouteParser::new(route_lit.clone())?;
+
         let state = match input.parse::<kw::with>() {
             Ok(_) => Some(input.parse::<Type>()?),
             Err(_) => None,
         };
+
         let oapi_options = input
             .peek(Brace)
             .then(|| {
@@ -353,6 +400,7 @@ impl Parse for Route {
             .transpose()?;
 
         Ok(Route {
+            debug,
             method,
             path_params: route_parser.path_params,
             query_params: route_parser.query_params,
@@ -378,6 +426,7 @@ pub enum Method {
 impl Parse for Method {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident = input.parse::<Ident>()?;
+
         match ident.to_string().to_uppercase().as_str() {
             "GET" => Ok(Self::Get(ident.span())),
             "POST" => Ok(Self::Post(ident.span())),
@@ -412,5 +461,6 @@ impl Method {
 }
 
 mod kw {
+    syn::custom_keyword!(debug);
     syn::custom_keyword!(with);
 }

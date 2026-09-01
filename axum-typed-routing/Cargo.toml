@@ -1,6 +1,6 @@
 [package]
 name = "axum-typed-routing"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 keywords = ["axum", "routing", "handler", "typed", "macro"]
@@ -18,7 +18,7 @@ features = ["aide"]
 [dependencies]
 axum.workspace = true
 aide = { workspace = true, optional = true }
-axum-typed-routing-macros = { version = "0.3.5", path = "../axum-typed-routing-macros" }
+axum-typed-routing-macros = { version = "0.3.6", path = "../axum-typed-routing-macros" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -26,6 +26,7 @@ axum-test = { version = "21", features = [] }
 serde.workspace = true
 schemars.workspace = true
 aide.workspace = true
+axum = { workspace = true, features = ["macros"]}
 
 [features]
 aide = ["dep:aide"]

@@ -23,6 +23,7 @@ mod parsing;
 /// ```ignore
 /// #[route(<METHOD> "<PATH>" [with <STATE>])]
 /// ```
+/// - `debug` is an optional flag that enables debug mode for the route. (Requires `macros` feature for axum)
 /// - `METHOD` is the HTTP method, such as `GET`, `POST`, `PUT`, etc.
 /// - `PATH` is the path of the route, with optional path parameters and query parameters,
 ///     e.g. `/item/{id}?amount&offset`.
@@ -34,7 +35,7 @@ mod parsing;
 /// use axum::extract::{State, Json};
 /// use axum_typed_routing_macros::route;
 ///
-/// #[route(GET "/item/{id}?amount&offset")]
+/// #[route([debug] GET "/item/{id}?amount&offset")]
 /// async fn item_handler(
 ///     id: u32,
 ///     amount: Option<u32>,
@@ -78,7 +79,7 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 ///
 /// # Syntax
 /// ```ignore
-/// #[api_route(<METHOD> "<PATH>" [with <STATE>] [{
+/// #[api_route([debug] <METHOD> "<PATH>" [with <STATE>] [{
 ///     summary: "<SUMMARY>",
 ///     description: "<DESCRIPTION>",
 ///     id: "<ID>",
@@ -166,6 +167,8 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident("doc"));
+    let debug_handler = route.axum_debug_handler();
+    let debug_operation_input_output = route.debug_operation_input_output(&function);
 
     let (aide_ident_docs, inner_fn_call, method_router_ty) = if with_aide {
         let http_method = format_ident!("{}_with", http_method);
@@ -231,7 +234,10 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
             #query_params_struct
             #path_params_struct
 
+            #debug_operation_input_output
+
             #aide_ident_docs
+            #debug_handler
             #asyncness fn __inner__function__ #impl_generics(
                 #path_extractor
                 #query_extractor
