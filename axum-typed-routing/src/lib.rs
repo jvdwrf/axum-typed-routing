@@ -1,53 +1,128 @@
-//! ## Basic usage
-//! The following example demonstrates the basic usage of the library.
-//! On top of any regular handler, you can add the [`route`] macro to create a typed route.
-//! Any path- or query-parameters in the url will be type-checked at compile-time, and properly
-//! extracted into the handler.
+//! Statically-typed routing macros for [axum], in the style of Rocket, with optional
+//! OpenAPI generation through [aide](https://docs.rs/aide).
 //!
-//! The following example shows how the path parameter `id`, and query parameters `amount` and
-//! `offset` are type-checked and extracted into the handler.
+//! Put the [`route`] attribute on a handler and write the path, including path and query
+//! parameters, next to it. The macro checks at compile time that every parameter matches a
+//! handler argument, and extracts the parameters into those arguments. Register the handler
+//! with [`TypedRouter::typed_route`].
 //!
+//! # Dependencies
+//! The generated code refers to some crates by name, so your crate needs them as direct
+//! dependencies:
+//! - always: `axum` and `serde` (with the `derive` feature);
+//! - with the `aide` feature: also `aide` (with its `axum` and `axum-query` features) and
+//!   `schemars`;
+//! - for `debug` mode: axum's `macros` feature.
+//!
+//! # Basic usage
+//! This handler takes the path parameter `id` and the query parameters `amount` and
+//! `offset`, and registers it on a router:
 //! ```
 #![doc = include_str!("../examples/basic.rs")]
 //! ```
 //!
-//! Some valid url's as get-methods are:
+//! Some URLs this route matches:
 //! - `/item/1?amount=2&offset=3`
 //! - `/item/1?amount=2`
 //! - `/item/1?offset=3`
 //! - `/item/500`
 //!
-//! By marking the `amount` and `offset` parameters as `Option<T>`, they become optional.
+//! `amount` and `offset` have type `Option<u32>`, so they are optional. `State` and `Json`
+//! are not named in the path, so they are passed through as ordinary axum extractors.
 //!
-//! ## Example with `aide`
-//! When the `aide` feature is enabled, it's possible to automatically generate OpenAPI
-//! documentation for the routes. The [`api_route`] macro is used in place of the [`route`] macro.
+//! The attribute replaces `item_handler` with a function
+//! `fn() -> (&'static str, MethodRouter<S>)` that returns the path and axum's method router.
+//! [`TypedRouter::typed_route`] calls it and adds the result to the router.
 //!
-//! Please read the [`aide`] documentation for more information on usage.
+//! # Path syntax
+//! | Syntax           | Meaning                                                              |
+//! |------------------|----------------------------------------------------------------------|
+//! | `/item/{id}`     | Capture one segment into the argument `id`.                          |
+//! | `/files/*path`   | Capture the rest of the path into `path`. It must be the last segment. |
+//! | `?amount&offset` | Query parameters `amount` and `offset`. Use `Option<T>` for optional ones. |
+//!
+//! Each argument's type decides how its parameter is deserialized. The parameters are
+//! collected into generated structs named `<Handler>Path` and `<Handler>Query`, which is
+//! why `serde` must be a dependency. See [`route`] for the full syntax.
+//!
+//! # State
+//! The state type is inferred from a `State<T>` argument, or is `()` if there is none. You can
+//! also set it explicitly with `with`:
+//! ```ignore
+//! #[route(GET "/item/{id}" with AppState)]
 //! ```
-#![doc = include_str!("../examples/aide.rs")]
+//!
+//! # Generic handlers
+//! Generic handlers stay generic. Pick the type parameters when you register them:
+//! ```ignore
+//! router.typed_route(handler::<u32>)
 //! ```
+//!
+//! # Debug mode
+//! Put `debug` before the method, as in `#[route(debug GET "/item/{id}")]`, to wrap the
+//! handler in [`axum::debug_handler`][debug_handler], which gives clearer errors when an
+//! extractor or the return type is wrong. This requires axum's `macros` feature. With
+//! `api_route`, `debug` also checks that every extractor implements `aide::OperationInput`
+//! and that the return type implements `aide::OperationOutput`.
+//!
+//! [debug_handler]: https://docs.rs/axum/latest/axum/attr.debug_handler.html
+//!
+//! # OpenAPI with `aide`
+//! With the `aide` feature enabled, use the [`api_route`] macro instead of [`route`] and
+//! register routes on an [`aide::axum::ApiRouter`] with [`TypedApiRouter::typed_api_route`].
+//!
+//! The operation is filled in from the handler:
+//! - the first line of the doc comment becomes the summary;
+//! - the rest of the doc comment, after the blank line, becomes the description;
+//! - doc comments on path and query arguments become parameter descriptions;
+//! - the function name becomes the `operationId`.
+//!
+//! You can override any of these, and set tags, security, responses and more. See
+//! [`api_route`] for all the options.
+//!
+//! To document error responses too, see the companion crate
+//! [axum-error-sets](https://docs.rs/axum-error-sets). It lets a handler declare the exact
+//! set of status codes it can return, and each one shows up in the OpenAPI documentation.
+#![cfg_attr(
+    feature = "aide",
+    doc = concat!("```\n", include_str!("../examples/aide.rs"), "\n```")
+)]
+//!
+//! # Feature flags
+//! - `aide`: enables [`api_route`], [`TypedApiRouter`], and [`TypedRouter`] for
+//!   [`aide::axum::ApiRouter`].
 
 use axum::routing::MethodRouter;
 
 type TypedHandler<S = ()> = fn() -> (&'static str, MethodRouter<S>);
 pub use axum_typed_routing_macros::route;
 
-/// A trait that allows typed routes, created with the [`route`] macro to
-/// be added to an axum router.
+/// Adds typed routes, created with the [`route`] macro, to a router.
 ///
-/// Typed handlers are of the form `fn() -> (&'static str, MethodRouter<S>)`, where
-/// `S` is the state type. The first element of the tuple is the path, and the second
-/// is the method router.
+/// It is implemented for [`axum::Router`], and for `aide::axum::ApiRouter` when the `aide`
+/// feature is enabled.
+///
+/// A typed handler is a function `fn() -> (&'static str, MethodRouter<S>)`, where `S` is the
+/// state type. It returns the route's path and its method router.
+///
+/// ```
+/// use axum_typed_routing::{TypedRouter, route};
+///
+/// #[route(GET "/hello/{name}")]
+/// async fn hello(name: String) -> String {
+///     format!("Hello, {name}!")
+/// }
+///
+/// let router: axum::Router = axum::Router::new().typed_route(hello);
+/// ```
 pub trait TypedRouter: Sized {
     /// The state type of the router.
     type State: Clone + Send + Sync + 'static;
 
-    /// Add a typed route to the router, usually created with the [`route`] macro.
+    /// Adds a typed route, usually created with the [`route`] macro, to the router.
     ///
-    /// Typed handlers are of the form `fn() -> (&'static str, MethodRouter<S>)`, where
-    /// `S` is the state type. The first element of the tuple is the path, and the second
-    /// is the method router.
+    /// This is the same as `router.route(path, method_router)` with the tuple the handler
+    /// returns.
     fn typed_route(self, handler: TypedHandler<Self::State>) -> Self;
 }
 
@@ -89,13 +164,34 @@ mod aide_support {
         }
     }
 
-    /// Same as [`TypedRouter`], but with support for `aide`.
+    /// Adds typed routes, created with the [`api_route`] macro, to an [`ApiRouter`] so that
+    /// they appear in the generated OpenAPI documentation.
+    ///
+    /// Routes created with [`route`](crate::route) can still be added to an [`ApiRouter`] with
+    /// [`TypedRouter::typed_route`]. They work, but are left out of the documentation.
+    ///
+    /// ```
+    /// use aide::{axum::ApiRouter, openapi::OpenApi};
+    /// use axum_typed_routing::{TypedApiRouter, api_route};
+    ///
+    /// /// Say hello
+    /// #[api_route(GET "/hello/{name}")]
+    /// async fn hello(name: String) -> String {
+    ///     format!("Hello, {name}!")
+    /// }
+    ///
+    /// let mut api = OpenApi::default();
+    /// let router: axum::Router = ApiRouter::new()
+    ///     .typed_api_route(hello)
+    ///     .finish_api(&mut api);
+    /// ```
     pub trait TypedApiRouter: TypedRouter {
-        /// Same as [`TypedRouter::typed_route`], but with support for `aide`.
+        /// Adds a typed route, created with the [`api_route`] macro, to the router, and
+        /// includes it in the OpenAPI documentation.
         fn typed_api_route(self, handler: TypedApiHandler<Self::State>) -> Self;
 
-        /// Same as [`TypedApiRouter::typed_api_route`], but with a custom path transform for
-        /// use with `aide`.
+        /// Same as [`TypedApiRouter::typed_api_route`], but also applies `transform` to the
+        /// path item's documentation. See [`ApiRouter::api_route_with`].
         fn typed_api_route_with(
             self,
             handler: TypedApiHandler<Self::State>,

@@ -17,25 +17,30 @@ extern crate syn;
 mod compilation;
 mod parsing;
 
-/// A macro that generates statically-typed routes for axum handlers.
+/// Turns an axum handler into a statically-typed route.
+///
+/// The path and query parameters named in the route are checked against the handler's arguments
+/// at compile time, and extracted into them.
 ///
 /// # Syntax
 /// ```ignore
-/// #[route(<METHOD> "<PATH>" [with <STATE>])]
+/// #[route([debug] <METHOD> "<PATH>" [with <STATE>])]
 /// ```
-/// - `debug` is an optional flag that enables debug mode for the route. (Requires `macros` feature for axum)
-/// - `METHOD` is the HTTP method, such as `GET`, `POST`, `PUT`, etc.
-/// - `PATH` is the path of the route, with optional path parameters and query parameters,
-///     e.g. `/item/{id}?amount&offset`.
-/// - `STATE` is the type of axum-state, passed to the handler. This is optional, and if not
-///    specified, the state type is guessed based on the parameters of the handler.
+/// - `debug` (optional) adds [`#[axum::debug_handler]`](https://docs.rs/axum/latest/axum/attr.debug_handler.html)
+///   to the handler for better compiler errors. This requires axum's `macros` feature.
+/// - `METHOD` is the HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `CONNECT`,
+///   `OPTIONS` or `TRACE`. It is case-insensitive.
+/// - `PATH` is the route's path, with optional path parameters and query parameters, for
+///   example `/item/{id}?amount&offset`. See [Path syntax](#path-syntax).
+/// - `STATE` (optional) is the axum state type. If you leave it out, it is inferred from the
+///   handler's arguments. See [State type](#state-type).
 ///
 /// # Example
 /// ```
 /// use axum::extract::{State, Json};
 /// use axum_typed_routing_macros::route;
 ///
-/// #[route([debug] GET "/item/{id}?amount&offset")]
+/// #[route(GET "/item/{id}?amount&offset")]
 /// async fn item_handler(
 ///     id: u32,
 ///     amount: Option<u32>,
@@ -47,21 +52,47 @@ mod parsing;
 /// }
 /// ```
 ///
+/// # Path syntax
+/// - `/item/{id}` captures one path segment into the argument `id`.
+/// - `/files/*path` captures the rest of the path into the argument `path`. A wildcard must be
+///   the last segment. It becomes axum's `{*path}` syntax.
+/// - `?amount&offset` declares query parameters `amount` and `offset`. Use `Option<T>` for an
+///   optional query parameter.
+///
+/// Every path and query parameter must have a handler argument with the same name, or
+/// compilation fails. That argument's type decides how the parameter is deserialized. All other
+/// arguments are passed through as ordinary axum extractors, in order.
+///
+/// Path and query parameters are deserialized into generated structs named `<Handler>Path` and
+/// `<Handler>Query` (for example `ItemHandlerPath` and `ItemHandlerQuery`), which derive
+/// `serde::Deserialize`. **Your crate therefore needs `serde` as a direct dependency.**
+///
+/// Doc comments on arguments are allowed. They are moved onto the fields of the generated
+/// structs, where [`macro@api_route`] uses them as parameter descriptions in the OpenAPI schema.
+///
 /// # State type
-/// Normally, the state-type is guessed based on the parameters of the function:
-/// If the function has a parameter of type `[..]::State<T>`, then `T` is used as the state type.
-/// This should work for most cases, however when not sufficient, the state type can be specified
-/// explicitly using the `with` keyword:
+/// By default the state type is inferred from the arguments: if an argument has type
+/// `State<T>` (with any path prefix), `T` is used. If there is none, the state is `()`.
+/// When that isn't enough, for example because the state is only used by a custom extractor,
+/// set it explicitly with `with`:
 /// ```ignore
 /// #[route(GET "/item/{id}?amount&offset" with String)]
 /// ```
 ///
-/// # Internals
-/// The macro expands to a function with signature `fn() -> (&'static str, axum::routing::MethodRouter<S>)`.
-/// The first element of the tuple is the path, and the second is axum's `MethodRouter`.
+/// # Expansion
+/// The attribute **replaces** the handler with a function of the same name, visibility and
+/// generics, with signature
+/// ```ignore
+/// fn() -> (&'static str, axum::routing::MethodRouter<S>)
+/// ```
+/// It returns the axum path (for example `"/item/{id}"`) and the method router. You can no
+/// longer call it as a handler directly. Add it to a router with
+/// [`TypedRouter::typed_route`](https://docs.rs/axum-typed-routing/latest/axum_typed_routing/trait.TypedRouter.html#tymethod.typed_route),
+/// or destructure the tuple yourself. Generic handlers are registered with a turbofish:
+/// `router.typed_route(handler::<u32>)`.
 ///
-/// The path and query are extracted using axum's `extract::Path` and `extract::Query` extractors, as the first
-/// and second parameters of the function. The remaining parameters are the parameters of the handler.
+/// The handler's own doc comments are kept, and a short summary of the route (method, path,
+/// state) is appended to them.
 #[proc_macro_attribute]
 pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     match _route(attr, item.clone(), false) {
@@ -74,8 +105,16 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
     }
 }
 
-/// Same as [`macro@route`], but with support for OpenApi using `aide`. See [`macro@route`] for more
-/// information and examples.
+/// Same as [`macro@route`], but also generates OpenAPI documentation with
+/// [`aide`](https://docs.rs/aide).
+///
+/// The generated function returns an `aide::axum::routing::ApiMethodRouter` instead of axum's
+/// `MethodRouter`. Add it to an `aide::axum::ApiRouter` with
+/// [`TypedApiRouter::typed_api_route`](https://docs.rs/axum-typed-routing/latest/axum_typed_routing/trait.TypedApiRouter.html#tymethod.typed_api_route).
+/// Everything described for [`macro@route`] applies here too.
+///
+/// Your crate needs `serde`, `schemars` and `aide` as direct dependencies, because the
+/// generated parameter structs derive `serde::Deserialize` and `schemars::JsonSchema`.
 ///
 /// # Syntax
 /// ```ignore
@@ -85,29 +124,39 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 ///     id: "<ID>",
 ///     tags: ["<TAG>", ..],
 ///     hidden: <bool>,
-///     security: { <SCHEME>: ["<SCOPE>", ..], .. },
+///     security: { "<SCHEME>": ["<SCOPE>", ..], .. },
 ///     responses: { <CODE>: <TYPE>, .. },
 ///     transform: |op| { .. },
 /// }])]
 /// ```
-/// - `summary` is the OpenApi summary. If not specified, the first line of the function's doc-comments
-/// - `description` is the OpenApi description. If not specified, the rest of the function's doc-comments
-/// - `id` is the OpenApi operationId. If not specified, the function's name is used.
-/// - `tags` are the OpenApi tags.
-/// - `hidden` sets whether docs should be hidden for this route.
-/// - `security` is the OpenApi security requirements.
-/// - `responses` are the OpenApi responses.
-/// - `transform` is a closure that takes an `TransformOperation` and returns an `TransformOperation`.
-/// This may override the other options. (see the crate `aide` for more information).
+/// Every option is optional:
+/// - `summary`: the operation summary. Defaults to the first line of the handler's doc comment.
+/// - `description`: the operation description. Defaults to the handler's doc comment after the
+///   first line and the blank line that follows it.
+/// - `id`: the `operationId`. Defaults to the handler's name.
+/// - `tags`: the operation's tags.
+/// - `hidden`: whether to hide the operation from the generated documentation.
+/// - `security`: security requirements, as a map from scheme name to required scopes.
+/// - `responses`: extra responses, as a map from status code to response type. Each type
+///   must implement `aide::OperationOutput`.
+/// - `transform`: a closure `|op| ..` that receives the `aide::transform::TransformOperation`
+///   and returns it. It runs after the other options, so it can override them.
+///
+/// Doc comments on path and query parameter arguments become the parameters' descriptions.
+///
+/// With `debug`, the macro also checks at compile time that every extractor argument
+/// implements `aide::OperationInput` and that the return type implements
+/// `aide::OperationOutput`, so a missing implementation gives a clear error at the handler.
 ///
 /// # Example
 /// ```
 /// use axum::extract::{State, Json};
 /// use axum_typed_routing_macros::api_route;
 ///
+/// /// Get an item
+/// ///
+/// /// Returns the item with the given id.
 /// #[api_route(GET "/item/{id}?amount&offset" with String {
-///     summary: "Get an item",
-///     description: "Get an item by id",
 ///     id: "get-item",
 ///     tags: ["items"],
 ///     hidden: false,
@@ -116,6 +165,7 @@ pub fn route(attr: TokenStream, mut item: TokenStream) -> TokenStream {
 ///     transform: |op| op.tag("private"),
 /// })]
 /// async fn item_handler(
+///     /// The id of the item
 ///     id: u32,
 ///     amount: Option<u32>,
 ///     offset: Option<u32>,
@@ -168,7 +218,7 @@ fn _route(attr: TokenStream, item: TokenStream, with_aide: bool) -> syn::Result<
         .iter()
         .filter(|attr| attr.path().is_ident("doc"));
     let debug_handler = route.axum_debug_handler();
-    let debug_operation_input_output = route.debug_operation_input_output(&function);
+    let debug_operation_input_output = route.debug_operation_input_output(&function, with_aide);
 
     let (aide_ident_docs, inner_fn_call, method_router_ty) = if with_aide {
         let http_method = format_ident!("{}_with", http_method);

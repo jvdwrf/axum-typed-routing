@@ -237,8 +237,10 @@ impl CompiledRoute {
         }
     }
 
-    pub fn debug_operation_input_output(&self, function: &ItemFn) -> TokenStream2 {
-        if !self.debug {
+    /// With `debug` enabled on an `api_route`, asserts at compile time that every extractor
+    /// implements `aide::OperationInput` and the return type implements `aide::OperationOutput`.
+    pub fn debug_operation_input_output(&self, function: &ItemFn, with_aide: bool) -> TokenStream2 {
+        if !self.debug || !with_aide {
             return quote! {};
         }
 

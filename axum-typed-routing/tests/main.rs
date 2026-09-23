@@ -113,6 +113,25 @@ async fn test_wildcard() {
     assert_eq!(response.json::<String>(), "foo/bar");
 }
 
+// `debug` on a plain `route` must not emit any `aide` checks.
+#[route(debug GET "/debug/{id}?name")]
+async fn debug_handler(id: u32, name: String, State(state): State<String>) -> String {
+    format!("{id} - {name} - {state}")
+}
+
+#[tokio::test]
+async fn test_debug() {
+    let router: axum::Router = axum::Router::new()
+        .typed_route(debug_handler)
+        .with_state("state".to_string());
+
+    let server = TestServer::new(router);
+
+    let response = server.get("/debug/1").add_query_param("name", "John").await;
+    response.assert_status_ok();
+    response.assert_text("1 - John - state");
+}
+
 #[cfg(feature = "aide")]
 mod aide_support {
     use super::*;
@@ -161,12 +180,12 @@ mod aide_support {
         let get_op = path_item(&api, "/hello").get.as_ref().unwrap();
         let post_op = path_item(&api, "/hello").post.as_ref().unwrap();
 
-        assert_eq!(get_op.summary, Some(" get-summary".to_string()));
-        assert_eq!(get_op.description, Some(" get-description".to_string()));
+        assert_eq!(get_op.summary, Some("get-summary".to_string()));
+        assert_eq!(get_op.description, Some("get-description".to_string()));
         assert!(get_op.tags.is_empty());
 
-        assert_eq!(post_op.summary, Some(" post-summary".to_string()));
-        assert_eq!(post_op.description, Some(" post-description".to_string()));
+        assert_eq!(post_op.summary, Some("post-summary".to_string()));
+        assert_eq!(post_op.description, Some("post-description".to_string()));
         assert!(post_op.tags.is_empty());
     }
 
@@ -216,6 +235,21 @@ mod aide_support {
     #[api_route(GET "/hello")]
     async fn get_gello_without_attributes(state: State<String>) -> String {
         String::from("Hello!")
+    }
+
+    #[test]
+    fn multi_line_description_is_joined_without_leading_spaces() {
+        let router = ApiRouter::new().typed_api_route(get_gello_without_attributes);
+        let mut api = OpenApi::default();
+        router.finish_api(&mut api);
+
+        let get_op = path_item(&api, "/hello").get.as_ref().unwrap();
+
+        assert_eq!(get_op.summary, Some("summary".to_string()));
+        assert_eq!(
+            get_op.description,
+            Some("description\ndescription".to_string())
+        );
     }
 
     fn path_item<'a>(api: &'a OpenApi, path: &str) -> &'a aide::openapi::PathItem {

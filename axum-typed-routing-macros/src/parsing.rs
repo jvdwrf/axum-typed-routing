@@ -322,7 +322,7 @@ impl OapiOptions {
         if self.description.is_none() {
             self.description = doc_iter(&function.attrs)
                 .skip(2)
-                .map(|item| item.value())
+                .map(|item| strip_doc_space(&item.value()).to_string())
                 .reduce(|mut acc, item| {
                     acc.push('\n');
                     acc.push_str(&item);
@@ -332,9 +332,10 @@ impl OapiOptions {
         }
 
         if self.summary.is_none() {
-            self.summary = doc_iter(&function.attrs)
-                .next()
-                .map(|item| (parse_quote!(summary), item.clone()));
+            self.summary = doc_iter(&function.attrs).next().map(|item| {
+                let summary = LitStr::new(item.value().trim(), item.span());
+                (parse_quote!(summary), summary)
+            });
         }
 
         if self.id.is_none() {
@@ -343,6 +344,12 @@ impl OapiOptions {
             self.id = Some((parse_quote!(id), LitStr::new(&id.to_string(), id.span())));
         }
     }
+}
+
+/// `/// foo` expands to `#[doc = " foo"]`. Strips that single leading space, keeping any
+/// further indentation.
+fn strip_doc_space(line: &str) -> &str {
+    line.strip_prefix(' ').unwrap_or(line)
 }
 
 fn doc_iter(attrs: &[Attribute]) -> impl Iterator<Item = &LitStr> + '_ {
